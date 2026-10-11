@@ -1,0 +1,1230 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>IARF Type-Curve Matcher</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: instrument-panel sidebar (inputs) beside a large log-log "tracing paper" plot; results and narrative below. */
+:root {
+  --bg: #f3f5f6; --surface: #ffffff; --surface-2: #eaeef1; --ink: #11161b; --ink-2: #47525c; --ink-3: #6f7b85;
+  --line: #d6dde2; --line-2: #e6ebee; --accent: #0d6b60; --accent-ink: #ffffff; --accent-soft: #0d6b6014;
+  --s-dp: #2a78d6; --s-der: #eb6834; --fam: #8794a0; --model: #11161b;
+  --band-wbs: #2a78d610; --band-iarf: #1baf7a1c; --band-late: #e87ba424;
+  --good: #0ca30c; --warn: #b77f00; --crit: #d03b3b; --good-soft: #0ca30c16; --warn-soft: #fab21926; --crit-soft: #d03b3b16;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1113; --surface: #161a1d; --surface-2: #1d2226; --ink: #e7ebee; --ink-2: #a9b3bb; --ink-3: #7f8b94;
+  --line: #2a3136; --line-2: #22282c; --accent: #35a897; --accent-ink: #061210; --accent-soft: #35a8971f;
+  --s-dp: #3987e5; --s-der: #d95926; --fam: #5d6972; --model: #e7ebee;
+  --band-wbs: #3987e514; --band-iarf: #199e7022; --band-late: #d5518126;
+  --good: #2fbf2f; --warn: #fab219; --crit: #e66767; --good-soft: #2fbf2f1c; --warn-soft: #fab2191f; --crit-soft: #e667671f;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1113; --surface: #161a1d; --surface-2: #1d2226; --ink: #e7ebee; --ink-2: #a9b3bb; --ink-3: #7f8b94;
+  --line: #2a3136; --line-2: #22282c; --accent: #35a897; --accent-ink: #061210; --accent-soft: #35a8971f;
+  --s-dp: #3987e5; --s-der: #d95926; --fam: #5d6972; --model: #e7ebee;
+  --band-wbs: #3987e514; --band-iarf: #199e7022; --band-late: #d5518126;
+  --good: #2fbf2f; --warn: #fab219; --crit: #e66767; --good-soft: #2fbf2f1c; --warn-soft: #fab2191f; --crit-soft: #e667671f;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.5; }
+.wrap { max-width: 1480px; margin: 0 auto; padding-inline: 20px; padding-block: 18px 40px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 24px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+h1 { font-family: var(--f-display); font-weight: 600; font-size: 26px; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h1 span { color: var(--ink-3); font-weight: 500; }
+.tagline { color: var(--ink-2); margin: 0; max-width: 70ch; }
+h2 { font-family: var(--f-display); font-weight: 600; font-size: 15px; letter-spacing: 0.02em; margin: 0; }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+
+.layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 1020px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* sidebar */
+aside.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); max-height: calc(100vh - 24px); overflow: auto; }
+@media (max-width: 1020px) { aside.panel { position: static; max-height: none; } }
+.sect { padding: 14px 16px; border-bottom: 1px solid var(--line-2); display: grid; gap: 10px; }
+.sect:last-child { border-bottom: 0; }
+.sect-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface-2); border-radius: var(--r); padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; color: var(--ink-2); font: 500 13px var(--f-body); padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.field { display: grid; gap: 3px; min-width: 0; }
+.field label, .lbl { font-size: 12px; color: var(--ink-2); display: flex; justify-content: space-between; gap: 6px; }
+.field label .u { color: var(--ink-3); font-family: var(--f-mono); font-size: 11px; }
+input[type="number"], input[type="text"], select, textarea {
+  width: 100%; min-width: 0; font: 13px var(--f-mono); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+textarea { min-height: 150px; resize: vertical; line-height: 1.4; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.check input { accent-color: var(--accent); }
+.btn { font: 600 13px var(--f-body); border-radius: 4px; padding: 8px 12px; cursor: pointer; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn.small { padding: 5px 9px; font-size: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.hint { font-size: 12px; color: var(--ink-3); margin: 0; }
+
+/* main column */
+main { display: grid; gap: 18px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); min-width: 0; }
+.card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 16px; border-bottom: 1px solid var(--line-2); }
+.card-body { padding: 14px 16px; }
+
+.summary { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr); gap: 0; }
+@media (max-width: 760px) { .summary { grid-template-columns: minmax(0, 1fr); } }
+.verdict { padding: 16px; border-right: 1px solid var(--line-2); display: grid; gap: 8px; align-content: start; }
+@media (max-width: 760px) { .verdict { border-right: 0; border-bottom: 1px solid var(--line-2); } }
+.pill { display: inline-flex; align-items: center; gap: 6px; font: 600 12px var(--f-body); padding: 3px 9px 3px 7px; border-radius: 999px; width: fit-content; }
+.pill svg { width: 14px; height: 14px; flex: none; }
+.pill.good { color: var(--good); background: var(--good-soft); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.pill.crit { color: var(--crit); background: var(--crit-soft); }
+.pill.neutral { color: var(--ink-2); background: var(--surface-2); }
+.verdict ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; display: grid; gap: 2px; }
+.model-name { font-family: var(--f-display); font-size: 18px; font-weight: 600; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 560px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.kpi { padding: 16px; display: grid; gap: 2px; align-content: start; border-left: 1px solid var(--line-2); }
+.kpi:first-child { border-left: 0; }
+@media (max-width: 560px) { .kpi:nth-child(3) { border-left: 0; } .kpi:nth-child(n+3) { border-top: 1px solid var(--line-2); } }
+.kpi .v { font-family: var(--f-display); font-size: 28px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi .v small { font-family: var(--f-mono); font-size: 12px; font-weight: 400; color: var(--ink-3); margin-left: 4px; }
+.kpi .pm { font-family: var(--f-mono); font-size: 12px; color: var(--ink-2); }
+.kpi .truth { font-family: var(--f-mono); font-size: 11px; color: var(--ink-3); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-2); }
+.legend i { display: inline-block; vertical-align: middle; margin-right: 5px; }
+.lg-dot { width: 9px; height: 9px; border-radius: 50%; }
+.lg-hollow { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink-3); }
+.lg-line { width: 18px; height: 2px; }
+.toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.tog { font: 500 12px var(--f-body); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.tog[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); }
+
+.plot-wrap { position: relative; width: 100%; }
+.plot-wrap canvas { display: block; width: 100%; }
+#ll { height: clamp(340px, 52vw, 600px); cursor: grab; touch-action: pan-y; }
+#ll.dragging { cursor: grabbing; }
+#ll.adjust { touch-action: none; }
+#sl { height: 300px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: 12px/1.45 var(--f-mono); color: var(--ink); box-shadow: 0 4px 14px #0000001f; white-space: nowrap; z-index: 2; }
+.tip b { font-family: var(--f-body); font-weight: 600; }
+.tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.manual { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 18px; align-items: end; padding: 12px 16px; border-top: 1px solid var(--line-2); }
+@media (max-width: 640px) { .manual { grid-template-columns: minmax(0, 1fr); } }
+.manual .field label { font-size: 12px; }
+
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+@media (max-width: 1180px) { .two { grid-template-columns: minmax(0, 1fr); } }
+.narr { display: grid; gap: 10px; max-width: 72ch; }
+.narr p { margin: 0; }
+.narr .k { font-family: var(--f-mono); font-size: 13px; white-space: nowrap; }
+
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+thead th { font: 500 11px var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+td { font-family: var(--f-mono); }
+td:first-child { font-family: var(--f-body); }
+td .unit { color: var(--ink-3); font-size: 11px; }
+.err-ok { color: var(--good); } .err-mid { color: var(--warn); } .err-bad { color: var(--crit); }
+.derived { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0; border-top: 1px solid var(--line-2); }
+.derived div { padding: 10px 16px; border-bottom: 1px solid var(--line-2); display: grid; gap: 1px; }
+.derived .l { font-size: 12px; color: var(--ink-2); }
+.derived .v { font: 500 15px var(--f-mono); font-variant-numeric: tabular-nums; }
+ol.steps { margin: 0; padding-left: 22px; display: grid; gap: 6px; color: var(--ink-2); }
+ol.steps li::marker { font-family: var(--f-mono); color: var(--ink-3); }
+details > summary { cursor: pointer; font: 600 13px var(--f-body); color: var(--ink-2); padding: 12px 16px; }
+details[open] > summary { border-bottom: 1px solid var(--line-2); }
+.datatbl { max-height: 380px; overflow: auto; }
+.msg { padding: 12px 16px; color: var(--crit); font-weight: 500; }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>IARF Type-Curve Matcher <span>/ wellbore storage &amp; skin</span></h1>
+    <p class="tagline">Generates a synthetic pressure test, finds the radial-flow period, matches it against the saved Gringarten–Bourdet type curves, then refines the match on the exact model and writes up the interpretation.</p>
+  </header>
+
+  <div class="layout">
+    <aside class="panel" aria-label="Inputs">
+      <div class="sect">
+        <div class="seg" role="group" aria-label="Data source">
+          <button id="srcSynth" aria-pressed="true">Synthetic test</button>
+          <button id="srcPaste" aria-pressed="false">Your data</button>
+        </div>
+      </div>
+
+      <div class="sect" id="synthSect">
+        <div class="sect-head"><h2>Synthetic test</h2><span class="eyebrow">true values</span></div>
+        <div class="field"><label for="preset">Scenario</label><select id="preset"></select></div>
+        <div class="grid2">
+          <div class="field"><label for="s_k">Permeability k <span class="u">md</span></label><input id="s_k" type="number" step="any" min="0.01"></div>
+          <div class="field"><label for="s_S">Skin S</label><input id="s_S" type="number" step="0.1" min="-6" max="60"></div>
+          <div class="field"><label for="s_C">Storage C <span class="u">bbl/psi</span></label><input id="s_C" type="number" step="any" min="0.00001"></div>
+          <div class="field"><label for="s_fault">Fault distance <span class="u">ft</span></label><input id="s_fault" type="number" step="10" min="0" placeholder="0 = no fault" title="Distance to a sealing fault; 0 means no fault"></div>
+          <div class="field"><label for="s_dur">Duration Δt <span class="u">hr</span></label><input id="s_dur" type="number" step="any" min="0.1"></div>
+          <div class="field"><label for="s_sigma">Gauge noise σ <span class="u">psi</span></label><input id="s_sigma" type="number" step="0.01" min="0"></div>
+          <div class="field"><label for="s_ppd">Points / log cycle</label><input id="s_ppd" type="number" step="1" min="5" max="60"></div>
+          <div class="field"><label for="s_seed">Noise seed</label><input id="s_seed" type="number" step="1" min="1"></div>
+        </div>
+        <div class="row"><button class="btn small" id="newNoise">New noise draw</button></div>
+      </div>
+
+      <div class="sect" id="pasteSect" hidden>
+        <div class="sect-head"><h2>Your data</h2><span class="eyebrow">two columns</span></div>
+        <div class="field"><label for="p_text">Δt (hr) and Δp or pressure (psi), one row per point</label>
+          <textarea id="p_text" spellcheck="false" placeholder="# dt_hr, dp_psi&#10;0.001, 0.92&#10;0.00126, 1.16&#10;..."></textarea></div>
+        <div class="field"><label for="p_col">Second column is</label>
+          <select id="p_col"><option value="dp">Δp, pressure change (psi)</option><option value="p">Pressure (psi), uses p at Δt = 0 below</option></select></div>
+        <div class="row"><button class="btn primary" id="p_load">Analyze pasted data</button><button class="btn small" id="p_sample">Paste current synthetic</button></div>
+        <p class="hint" id="p_msg"></p>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head"><h2>Test &amp; well</h2></div>
+        <div class="grid2">
+          <div class="field"><label for="t_type">Test type</label><select id="t_type"><option value="dd">Drawdown</option><option value="bu">Buildup</option></select></div>
+          <div class="field" id="tpField"><label for="t_tp"><span>Producing time t<sub>p</sub></span> <span class="u">hr</span></label><input id="t_tp" type="number" step="any" min="0.1"></div>
+          <div class="field"><label for="w_q">Rate q <span class="u">STB/D</span></label><input id="w_q" type="number" step="any"></div>
+          <div class="field"><label for="w_B"><span>Oil FVF B<sub>o</sub></span> <span class="u">rb/STB</span></label><input id="w_B" type="number" step="any"></div>
+          <div class="field"><label for="w_mu">Viscosity μ <span class="u">cp</span></label><input id="w_mu" type="number" step="any"></div>
+          <div class="field"><label for="w_h">Thickness h <span class="u">ft</span></label><input id="w_h" type="number" step="any"></div>
+          <div class="field"><label for="w_phi">Porosity φ <span class="u">frac</span></label><input id="w_phi" type="number" step="any"></div>
+          <div class="field"><label for="w_ct"><span>Compressibility c<sub>t</sub></span> <span class="u">1/psi</span></label><input id="w_ct" type="text" inputmode="decimal"></div>
+          <div class="field"><label for="w_rw"><span>Well radius r<sub>w</sub></span> <span class="u">ft</span></label><input id="w_rw" type="number" step="any"></div>
+          <div class="field"><label for="w_p0">p at Δt = 0 <span class="u">psi</span></label><input id="w_p0" type="number" step="any"></div>
+        </div>
+      </div>
+
+      <div class="sect">
+        <div class="sect-head"><h2>Analysis</h2></div>
+        <label class="check"><input type="checkbox" id="a_Lauto" checked> Pick derivative smoothing automatically</label>
+        <div class="field"><label for="a_L">Bourdet smoothing L <span class="u" id="a_Lv">0.10 cycle</span></label><input id="a_L" type="range" min="0.05" max="0.5" step="0.05" value="0.1" disabled></div>
+        <label class="check"><input type="checkbox" id="a_wauto" checked> Pick match window automatically</label>
+        <div class="grid2">
+          <div class="field"><label for="a_t0">Window from <span class="u">hr</span></label><input id="a_t0" type="number" step="any" disabled></div>
+          <div class="field"><label for="a_t1">to <span class="u">hr</span></label><input id="a_t1" type="number" step="any" disabled></div>
+        </div>
+        <button class="btn primary" id="runAuto">Auto-match</button>
+      </div>
+    </aside>
+
+    <main>
+      <section class="card summary" aria-live="polite">
+        <div class="verdict" id="verdict"></div>
+        <div class="kpis" id="kpis"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <div><h2>Log-log diagnostic</h2><div class="legend" id="llLegend"></div></div>
+          <div class="toggles">
+            <button class="tog" id="togFam" aria-pressed="true">Type-curve family</button>
+            <button class="tog" id="togReg" aria-pressed="true">Flow regimes</button>
+            <button class="tog" id="togAdj" aria-pressed="false" title="On touch screens, turn this on to slide the match with your finger">Slide with touch</button>
+          </div>
+        </div>
+        <div class="plot-wrap"><canvas id="ll" role="img" aria-label="Log-log plot of pressure change and Bourdet derivative with the matched model"></canvas><div class="tip" id="llTip" hidden></div></div>
+        <div class="manual">
+          <div class="field"><label for="m_cg"><span>Matched curve C<sub>D</sub>e<sup>2S</sup></span> <span class="u" id="m_cgv"></span></label><input id="m_cg" type="range" min="-1" max="30" step="0.05"></div>
+          <div class="row"><button class="btn small" id="refine">Refine from here</button><button class="btn small" id="reauto">Back to auto-match</button></div>
+          <p class="hint" style="grid-column: 1 / -1">Drag the plot to slide the model like tracing paper: up/down changes kh, left/right changes storage C. The slider picks the curve, which sets skin.</p>
+        </div>
+      </section>
+
+      <div class="two">
+        <section class="card">
+          <div class="card-head"><div><h2>Semilog check</h2><div class="legend" id="slLegend"></div></div><span class="eyebrow" id="slNote"></span></div>
+          <div class="plot-wrap"><canvas id="sl" role="img" aria-label="Semilog plot of pressure change versus equivalent time with the radial-flow straight line"></canvas><div class="tip" id="slTip" hidden></div></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Interpretation</h2><button class="btn small" id="copyRep">Copy report</button></div>
+          <div class="card-body narr" id="narr"></div>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="card-head"><h2>Results</h2><span class="eyebrow" id="resNote"></span></div>
+        <div class="tbl-wrap"><table id="resTbl"></table></div>
+        <div class="derived" id="derived"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>How the match was found</h2><span class="eyebrow">auto-match steps</span></div>
+        <div class="card-body"><ol class="steps" id="steps"></ol></div>
+        <details><summary>Data table</summary><div class="datatbl tbl-wrap"><table id="dataTbl"></table></div></details>
+      </section>
+      <textarea id="copyBuf" class="sr" aria-hidden="true" tabindex="-1"></textarea>
+    </main>
+  </div>
+</div>
+
+<script>
+const SAVED_CURVES={"C":[0.1,0.3,1,3,10.0,30.0,100.0,300.0,1000.0,3000.0,10000.0,1000000.0,100000000.0,10000000000.0,1000000000000000.0,1e+20,1e+30],"lt0":-2.0,"ppd":25,"n":176,"p":[[-20957,-20598,-20242,-19887,-19533,-19182,-18833,-18485,-18139,-17796,-17454,-17115,-16778,-16443,-16111,-15781,-15453,-15128,-14805,-14485,-14168,-13853,-13541,-13231,-12925,-12621,-12321,-12023,-11728,-11436,-11147,-10861,-10578,-10298,-10021,-9747,-9477,-9209,-8944,-8683,-8424,-8169,-7917,-7668,-7421,-7178,-6938,-6701,-6467,-6236,-6007,-5782,-5559,-5340,-5123,-4909,-4698,-4489,-4283,-4080,-3880,-3682,-3488,-3295,-3105,-2918,-2734,-2552,-2372,-2196,-2021,-1849,-1680,-1513,-1348,-1186,-1026,-869,-714,-561,-411,-263,-117,27,168,307,444,578,711,841,969,1096,1220,1342,1462,1580,1696,1810,1922,2033,2141,2248,2353,2456,2557,2657,2755,2852,2947,3040,3132,3222,3311,3399,3485,3569,3652,3734,3815,3895,3973,4050,4125,4200,4274,4346,4417,4488,4557,4625,4693,4759,4825,4889,4953,5016,5078,5139,5199,5258,5317,5375,5433,5489,5545,5600,5655,5708,5762,5814,5866,5917,5968,6018,6068,6117,6166,6214,6261,6308,6355,6401,6446,6491,6536,6580,6624,6667,6710,6752,6794,6836,6877,6918,6958,6998],[-20577,-20203,-19830,-19459,-19089,-18720,-18352,-17986,-17621,-17258,-16897,-16537,-16178,-15822,-15467,-15114,-14763,-14414,-14067,-13722,-13380,-13040,-12702,-12366,-12033,-11703,-11375,-11050,-10728,-10408,-10092,-9778,-9468,-9161,-8857,-8556,-8259,-7965,-7675,-7388,-7105,-6826,-6550,-6278,-6010,-5745,-5485,-5229,-4976,-4727,-4483,-4242,-4006,-3774,-3545,-3321,-3100,-2884,-2672,-2463,-2259,-2059,-1862,-1669,-1480,-1295,-1114,-936,-762,-591,-424,-260,-100,57,211,361,509,653,795,933,1069,1201,1332,1459,1584,1706,1826,1943,2058,2171,2282,2390,2496,2601,2703,2803,2902,2998,3093,3186,3278,3368,3456,3542,3627,3711,3793,3874,3954,4032,4109,4185,4259,4332,4405,4476,4546,4615,4683,4749,4815,4880,4944,5008,5070,5131,5192,5252,5311,5369,5427,5483,5539,5595,5649,5703,5757,5809,5862,5913,5964,6014,6064,6113,6162,6210,6257,6304,6351,6397,6443,6488,6532,6576,6620,6664,6706,6749,6791,6833,6874,6915,6955,6995,7035,7075,7114,7152,7191,7229,7266,7304,7341,7377,7414,7450],[-20328,-19943,-19559,-19176,-18794,-18413,-18032,-17653,-17274,-16897,-16520,-16145,-15770,-15397,-15025,-14655,-14286,-13918,-13552,-13187,-12825,-12463,-12104,-11747,-11391,-11038,-10686,-10337,-9991,-9646,-9304,-8965,-8629,-8295,-7965,-7637,-7313,-6992,-6675,-6361,-6051,-5744,-5442,-5144,-4849,-4559,-4274,-3993,-3717,-3446,-3179,-2918,-2661,-2410,-2164,-1923,-1688,-1458,-1233,-1014,-800,-592,-389,-192,0,187,368,545,716,882,1044,1201,1353,1501,1644,1784,1919,2051,2179,2303,2424,2541,2656,2767,2876,2981,3085,3185,3283,3379,3473,3564,3654,3742,3827,3911,3994,4074,4154,4231,4307,4382,4455,4528,4599,4668,4737,4804,4870,4936,5000,5063,5126,5187,5248,5307,5366,5424,5482,5538,5594,5649,5703,5757,5810,5862,5914,5965,6015,6065,6115,6163,6212,6259,6306,6353,6399,6445,6490,6535,6579,6623,6666,6709,6751,6793,6835,6876,6917,6958,6998,7038,7077,7116,7155,7193,7231,7269,7306,7343,7380,7416,7453,7488,7524,7559,7594,7629,7663,7697,7731,7765,7798,7831,7864,7896],[-20196,-19805,-19415,-19026,-18637,-18249,-17861,-17474,-17087,-16702,-16316,-15932,-15549,-15166,-14784,-14403,-14024,-13645,-13267,-12891,-12515,-12141,-11769,-11398,-11028,-10660,-10294,-9929,-9566,-9206,-8847,-8490,-8136,-7784,-7435,-7089,-6745,-6404,-6066,-5732,-5401,-5074,-4750,-4430,-4115,-3803,-3496,-3194,-2896,-2604,-2317,-2035,-1759,-1488,-1223,-964,-712,-466,-226,7,234,454,667,873,1073,1266,1452,1632,1805,1972,2133,2287,2436,2579,2717,2850,2977,3100,3219,3333,3443,3550,3653,3753,3849,3943,4034,4122,4208,4291,4372,4452,4529,4605,4679,4751,4822,4891,4959,5026,5091,5156,5219,5281,5342,5402,5461,5519,5576,5632,5688,5742,5796,5850,5902,5954,6005,6056,6106,6155,6203,6252,6299,6346,6393,6439,6484,6529,6573,6617,6661,6704,6747,6789,6831,6872,6913,6954,6994,7034,7074,7113,7151,7190,7228,7266,7303,7340,7377,7413,7450,7485,7521,7556,7591,7626,7660,7695,7728,7762,7795,7829,7861,7894,7926,7959,7990,8022,8054,8085,8116,8146,8177,8207,8237,8267],[-20113,-19718,-19324,-18931,-18538,-18145,-17752,-17360,-16968,-16577,-16186,-15796,-15407,-15018,-14629,-14241,-13854,-13468,-13082,-12698,-12314,-11931,-11549,-11168,-10789,-10410,-10033,-9657,-9283,-8910,-8539,-8170,-7802,-7436,-7073,-6712,-6353,-5996,-5642,-5291,-4943,-4598,-4257,-3918,-3584,-3254,-2927,-2605,-2288,-1975,-1668,-1366,-1069,-778,-493,-215,57,323,581,832,1076,1312,1540,1761,1974,2178,2375,2564,2745,2918,3083,3241,3391,3534,3671,3801,3925,4043,4156,4263,4366,4464,4559,4649,4736,4820,4901,4979,5054,5128,5199,5268,5335,5401,5465,5527,5589,5649,5707,5765,5821,5877,5931,5985,6037,6089,6140,6190,6240,6289,6337,6385,6432,6478,6524,6569,6614,6658,6701,6745,6787,6829,6871,6913,6953,6994,7034,7074,7113,7152,7191,7229,7267,7304,7342,7378,7415,7451,7487,7523,7558,7593,7628,7662,7697,7730,7764,7797,7831,7863,7896,7928,7961,7993,8024,8056,8087,8118,8149,8179,8209,8240,8269,8299,8329,8358,8387,8416,8445,8473,8502,8530,8558,8585,8613,8640],[-20069,-19673,-19277,-18881,-18486,-18090,-17695,-17300,-16906,-16512,-16118,-15725,-15332,-14939,-14547,-14156,-13765,-13374,-12984,-12595,-12206,-11818,-11431,-11045,-10660,-10275,-9892,-9510,-9129,-8749,-8370,-7993,-7617,-7243,-6871,-6501,-6132,-5766,-5402,-5040,-4681,-4324,-3971,-3620,-3273,-2930,-2590,-2254,-1922,-1595,-1272,-955,-643,-336,-35,260,548,830,1104,1372,1631,1883,2127,2363,2590,2808,3017,3218,3409,3592,3766,3931,4088,4236,4376,4508,4633,4751,4863,4968,5067,5162,5251,5337,5418,5496,5570,5642,5710,5777,5841,5903,5964,6022,6080,6136,6190,6243,6296,6347,6397,6446,6495,6542,6589,6635,6681,6726,6770,6813,6856,6899,6941,6982,7023,7064,7104,7143,7182,7221,7259,7297,7335,7372,7409,7446,7482,7518,7553,7589,7624,7658,7693,7727,7760,7794,7827,7860,7893,7925,7958,7990,8021,8053,8084,8115,8146,8177,8207,8237,8267,8297,8326,8356,8385,8414,8442,8471,8499,8528,8556,8583,8611,8638,8666,8693,8720,8747,8773,8800,8826,8852,8878,8904,8930,8955],[-20042,-19645,-19247,-18850,-18453,-18056,-17659,-17263,-16867,-16471,-16075,-15679,-15284,-14889,-14495,-14101,-13707,-13314,-12921,-12528,-12137,-11745,-11355,-10965,-10575,-10187,-9799,-9412,-9026,-8641,-8258,-7875,-7493,-7113,-6735,-6357,-5982,-5608,-5236,-4866,-4499,-4134,-3771,-3411,-3053,-2699,-2348,-2001,-1657,-1318,-982,-652,-326,-5,311,620,924,1221,1512,1795,2071,2339,2599,2851,3094,3328,3552,3768,3973,4169,4355,4532,4699,4856,5004,5143,5273,5395,5509,5616,5716,5809,5897,5980,6058,6131,6201,6268,6332,6393,6451,6508,6563,6616,6668,6718,6767,6814,6861,6907,6952,6996,7039,7082,7124,7165,7205,7245,7285,7324,7362,7400,7438,7475,7512,7548,7584,7620,7655,7690,7724,7758,7792,7826,7859,7892,7925,7957,7990,8021,8053,8085,8116,8147,8177,8208,8238,8268,8298,8328,8357,8386,8415,8444,8472,8501,8529,8557,8585,8613,8640,8667,8695,8721,8748,8775,8801,8828,8854,8880,8906,8931,8957,8982,9007,9032,9057,9082,9107,9131,9156,9180,9204,9228,9252,9276],[-20028,-19630,-19232,-18834,-18436,-18038,-17640,-17243,-16846,-16449,-16052,-15655,-15259,-14863,-14467,-14071,-13676,-13281,-12886,-12492,-12099,-11705,-11313,-10921,-10529,-10138,-9748,-9358,-8969,-8581,-8194,-7808,-7423,-7039,-6656,-6275,-5895,-5517,-5140,-4765,-4392,-4021,-3652,-3285,-2921,-2560,-2202,-1846,-1495,-1146,-802,-462,-126,205,531,852,1167,1476,1779,2075,2363,2645,2918,3183,3440,3687,3926,4155,4374,4583,4781,4970,5148,5315,5473,5621,5758,5887,6006,6117,6220,6315,6404,6487,6564,6636,6704,6768,6829,6886,6942,6995,7046,7095,7142,7189,7234,7277,7320,7362,7403,7443,7483,7522,7560,7597,7635,7671,7707,7743,7778,7813,7847,7881,7914,7948,7980,8013,8045,8077,8109,8140,8171,8202,8233,8263,8293,8323,8353,8382,8411,8440,8469,8497,8526,8554,8582,8610,8637,8665,8692,8719,8746,8772,8799,8825,8852,8878,8903,8929,8955,8980,9005,9030,9055,9080,9105,9129,9154,9178,9202,9226,9250,9274,9297,9321,9344,9367,9390,9413,9436,9459,9481,9504,9526,9549],[-20019,-19620,-19222,-18823,-18425,-18026,-17628,-17230,-16832,-16434,-16037,-15639,-15242,-14845,-14448,-14051,-13655,-13259,-12863,-12468,-12073,-11678,-11284,-10890,-10497,-10104,-9712,-9320,-8929,-8539,-8149,-7761,-7373,-6986,-6600,-6216,-5832,-5450,-5070,-4690,-4313,-3937,-3563,-3192,-2822,-2455,-2091,-1729,-1370,-1015,-663,-315,30,370,705,1036,1361,1681,1995,2302,2603,2896,3183,3461,3731,3992,4244,4487,4720,4943,5155,5357,5548,5728,5898,6056,6204,6341,6469,6586,6695,6795,6887,6972,7051,7123,7191,7254,7313,7368,7421,7471,7519,7565,7609,7652,7693,7734,7773,7811,7849,7886,7922,7958,7992,8027,8061,8094,8127,8160,8192,8223,8255,8286,8316,8347,8377,8407,8436,8466,8495,8523,8552,8580,8608,8636,8664,8691,8719,8746,8772,8799,8826,8852,8878,8904,8930,8955,8981,9006,9031,9056,9081,9106,9131,9155,9179,9203,9228,9251,9275,9299,9322,9346,9369,9392,9415,9438,9460,9483,9505,9528,9550,9572,9594,9616,9638,9660,9681,9703,9724,9745,9767,9788,9809,9829],[-20014,-19615,-19216,-18817,-18418,-18020,-17621,-17223,-16824,-16426,-16028,-15630,-15232,-14835,-14437,-14040,-13643,-13246,-12850,-12454,-12058,-11662,-11267,-10872,-10478,-10084,-9690,-9297,-8905,-8513,-8122,-7732,-7342,-6954,-6566,-6179,-5793,-5409,-5025,-4643,-4263,-3884,-3507,-3131,-2758,-2387,-2018,-1652,-1288,-928,-570,-216,134,481,823,1161,1494,1821,2144,2460,2770,3073,3369,3658,3939,4211,4474,4729,4973,5208,5432,5646,5849,6040,6221,6390,6548,6694,6830,6956,7071,7177,7274,7363,7444,7518,7587,7650,7709,7763,7814,7863,7909,7952,7994,8035,8074,8112,8148,8184,8219,8254,8287,8320,8353,8385,8416,8447,8478,8508,8538,8567,8596,8625,8654,8682,8710,8737,8765,8792,8819,8846,8872,8899,8925,8951,8976,9002,9027,9053,9078,9103,9127,9152,9176,9201,9225,9249,9273,9296,9320,9343,9366,9390,9413,9436,9458,9481,9504,9526,9548,9570,9592,9614,9636,9658,9680,9701,9722,9744,9765,9786,9807,9828,9849,9869,9890,9910,9931,9951,9971,9991,10011,10031,10051,10071],[-20010,-19611,-19212,-18813,-18414,-18015,-17616,-17217,-16819,-16420,-16022,-15624,-15225,-14827,-14429,-14032,-13634,-13237,-12840,-12443,-12047,-11650,-11254,-10859,-10463,-10069,-9674,-9280,-8887,-8494,-8101,-7710,-7319,-6928,-6539,-6150,-5762,-5376,-4990,-4606,-4223,-3841,-3461,-3083,-2706,-2332,-1959,-1589,-1221,-856,-494,-135,221,574,922,1266,1606,1941,2271,2595,2914,3226,3532,3830,4121,4404,4678,4944,5200,5446,5683,5908,6123,6327,6519,6700,6869,7027,7173,7307,7431,7545,7648,7743,7828,7906,7977,8042,8101,8156,8206,8254,8298,8340,8380,8419,8455,8491,8526,8559,8592,8624,8655,8686,8716,8746,8775,8804,8832,8860,8888,8915,8942,8969,8995,9021,9047,9073,9098,9124,9149,9174,9198,9223,9247,9271,9295,9319,9343,9366,9389,9413,9436,9459,9481,9504,9526,9549,9571,9593,9615,9637,9659,9681,9702,9723,9745,9766,9787,9808,9829,9850,9870,9891,9912,9932,9952,9972,9993,10013,10032,10052,10072,10092,10111,10131,10150,10169,10189,10208,10227,10246,10264,10283,10302,10321],[-20005,-19605,-19206,-18806,-18407,-18008,-17608,-17209,-16810,-16411,-16011,-15612,-15214,-14815,-14416,-14017,-13619,-13221,-12822,-12424,-12026,-11629,-11231,-10834,-10437,-10040,-9643,-9247,-8851,-8456,-8061,-7666,-7272,-6878,-6485,-6092,-5700,-5309,-4919,-4529,-4140,-3753,-3366,-2981,-2596,-2214,-1832,-1453,-1075,-699,-325,46,416,782,1146,1506,1863,2217,2566,2911,3252,3588,3918,4243,4562,4874,5179,5476,5766,6047,6320,6582,6835,7078,7309,7529,7738,7934,8119,8290,8450,8596,8731,8853,8964,9063,9152,9232,9303,9366,9422,9472,9518,9559,9596,9631,9664,9694,9723,9751,9778,9804,9830,9854,9878,9902,9925,9948,9970,9992,10014,10036,10057,10078,10099,10119,10140,10160,10180,10200,10220,10239,10259,10278,10297,10316,10335,10354,10373,10391,10410,10428,10446,10465,10483,10501,10519,10537,10554,10572,10590,10607,10625,10642,10659,10676,10694,10711,10728,10745,10761,10778,10795,10812,10828,10845,10861,10878,10894,10910,10926,10942,10959,10975,10991,11006,11022,11038,11054,11069,11085,11101,11116,11132,11147,11162],[-20003,-19604,-19204,-18804,-18405,-18005,-17606,-17206,-16807,-16407,-16008,-15608,-15209,-14810,-14411,-14012,-13613,-13214,-12815,-12417,-12018,-11620,-11222,-10824,-10426,-10028,-9631,-9233,-8836,-8440,-8043,-7647,-7251,-6856,-6461,-6066,-5672,-5279,-4886,-4494,-4102,-3711,-3321,-2932,-2544,-2157,-1772,-1387,-1004,-622,-242,136,513,887,1259,1628,1995,2359,2720,3077,3431,3780,4126,4466,4802,5132,5456,5774,6085,6389,6685,6973,7253,7523,7783,8033,8272,8499,8715,8919,9110,9288,9453,9605,9744,9870,9984,10086,10177,10256,10327,10388,10442,10489,10530,10567,10600,10630,10658,10683,10707,10730,10752,10773,10794,10814,10833,10852,10871,10890,10908,10926,10943,10961,10978,10995,11012,11029,11045,11062,11078,11094,11110,11126,11142,11158,11174,11189,11205,11220,11235,11251,11266,11281,11296,11311,11326,11341,11356,11370,11385,11400,11414,11429,11443,11457,11472,11486,11500,11514,11529,11543,11557,11571,11585,11598,11612,11626,11640,11654,11667,11681,11694,11708,11721,11735,11748,11762,11775,11788,11802,11815,11828,11841,11854,11867],[-20002,-19603,-19203,-18803,-18403,-18004,-17604,-17204,-16805,-16405,-16006,-15606,-15207,-14808,-14408,-14009,-13610,-13211,-12812,-12413,-12014,-11615,-11217,-10818,-10420,-10022,-9624,-9226,-8828,-8431,-8034,-7637,-7240,-6844,-6448,-6052,-5657,-5262,-4867,-4474,-4080,-3688,-3296,-2905,-2514,-2124,-1736,-1348,-962,-577,-193,190,571,950,1327,1702,2075,2446,2814,3179,3541,3899,4254,4605,4952,5294,5631,5963,6289,6609,6922,7227,7525,7815,8096,8368,8630,8881,9122,9351,9568,9773,9964,10143,10308,10460,10599,10724,10837,10937,11025,11102,11169,11227,11278,11321,11358,11391,11420,11446,11469,11491,11511,11530,11549,11567,11584,11600,11617,11633,11648,11664,11679,11694,11709,11723,11738,11752,11766,11780,11794,11808,11822,11836,11849,11863,11876,11889,11903,11916,11929,11942,11955,11968,11981,11994,12006,12019,12032,12044,12057,12069,12082,12094,12107,12119,12131,12144,12156,12168,12180,12192,12205,12217,12229,12241,12253,12264,12276,12288,12300,12312,12324,12335,12347,12359,12370,12382,12393,12405,12416,12428,12439,12451,12462,12473],[-20001,-19602,-19202,-18802,-18402,-18002,-17603,-17203,-16803,-16403,-16004,-15604,-15204,-14805,-14405,-14006,-13606,-13207,-12807,-12408,-12009,-11610,-11211,-10812,-10413,-10014,-9615,-9216,-8818,-8420,-8021,-7623,-7226,-6828,-6431,-6034,-5637,-5240,-4844,-4448,-4052,-3657,-3263,-2868,-2475,-2082,-1689,-1298,-907,-517,-128,261,648,1033,1418,1801,2183,2563,2941,3317,3690,4062,4431,4797,5160,5519,5875,6227,6575,6918,7257,7589,7916,8237,8551,8858,9157,9448,9729,10002,10264,10515,10756,10984,11200,11404,11594,11771,11934,12083,12218,12339,12447,12542,12624,12696,12756,12808,12851,12888,12918,12944,12966,12986,13003,13018,13033,13047,13060,13072,13084,13096,13108,13119,13130,13141,13152,13162,13173,13183,13194,13204,13214,13224,13234,13244,13254,13264,13273,13283,13293,13302,13312,13322,13331,13340,13350,13359,13369,13378,13387,13396,13406,13415,13424,13433,13442,13451,13460,13470,13479,13488,13497,13505,13514,13523,13532,13541,13550,13559,13568,13576,13585,13594,13603,13611,13620,13629,13638,13646,13655,13663,13672,13681,13689,13698],[-20001,-19601,-19201,-18801,-18402,-18002,-17602,-17202,-16802,-16402,-16003,-15603,-15203,-14803,-14404,-14004,-13604,-13205,-12805,-12406,-12006,-11607,-11208,-10808,-10409,-10010,-9611,-9212,-8813,-8414,-8016,-7617,-7219,-6821,-6423,-6025,-5627,-5230,-4832,-4435,-4039,-3642,-3246,-2851,-2456,-2061,-1667,-1273,-880,-487,-95,296,686,1075,1464,1851,2237,2621,3005,3387,3767,4145,4521,4895,5267,5636,6002,6365,6725,7081,7433,7781,8124,8463,8796,9122,9443,9757,10063,10362,10652,10933,11205,11466,11716,11956,12183,12397,12599,12787,12961,13121,13267,13399,13517,13621,13711,13790,13857,13913,13960,13999,14031,14057,14079,14097,14113,14127,14139,14150,14161,14171,14180,14190,14199,14208,14217,14225,14234,14242,14250,14258,14267,14275,14283,14290,14298,14306,14314,14322,14329,14337,14344,14352,14359,14367,14374,14382,14389,14397,14404,14411,14419,14426,14433,14441,14448,14455,14462,14469,14477,14484,14491,14498,14505,14512,14519,14527,14534,14541,14548,14555,14562,14569,14576,14583,14590,14597,14604,14610,14617,14624,14631,14638,14645,14652],[-20001,-19601,-19201,-18801,-18401,-18001,-17601,-17201,-16801,-16402,-16002,-15602,-15202,-14802,-14402,-14003,-13603,-13203,-12803,-12404,-12004,-11605,-11205,-10805,-10406,-10007,-9607,-9208,-8809,-8409,-8010,-7611,-7212,-6814,-6415,-6016,-5618,-5220,-4821,-4423,-4026,-3628,-3231,-2834,-2437,-2040,-1644,-1248,-853,-458,-63,331,724,1117,1509,1900,2291,2681,3069,3457,3844,4229,4613,4995,5376,5755,6132,6506,6879,7249,7616,7980,8341,8698,9052,9401,9745,10085,10419,10748,11070,11385,11693,11994,12285,12568,12842,13105,13357,13598,13827,14043,14246,14435,14610,14771,14918,15050,15167,15271,15361,15438,15503,15557,15602,15638,15667,15690,15709,15723,15736,15746,15755,15763,15770,15777,15784,15791,15797,15803,15809,15815,15821,15827,15833,15838,15844,15850,15855,15861,15866,15872,15877,15882,15888,15893,15898,15904,15909,15914,15919,15925,15930,15935,15940,15945,15950,15956,15961,15966,15971,15976,15981,15986,15991,15996,16001,16006,16011,16016,16021,16026,16031,16036,16041,16046,16051,16056,16061,16066,16071,16076,16081,16086,16091,16096]],"d":[[-21424,-21086,-20750,-20416,-20085,-19756,-19431,-19107,-18787,-18470,-18156,-17844,-17536,-17231,-16929,-16631,-16336,-16044,-15756,-15471,-15190,-14912,-14638,-14368,-14101,-13838,-13579,-13324,-13073,-12825,-12581,-12341,-12105,-11872,-11643,-11418,-11197,-10979,-10765,-10555,-10348,-10145,-9945,-9749,-9556,-9367,-9181,-8998,-8819,-8643,-8470,-8300,-8134,-7971,-7810,-7653,-7499,-7348,-7200,-7055,-6913,-6774,-6638,-6505,-6375,-6248,-6124,-6003,-5885,-5769,-5657,-5548,-5441,-5338,-5237,-5139,-5044,-4952,-4863,-4777,-4693,-4613,-4535,-4460,-4387,-4317,-4250,-4186,-4124,-4064,-4007,-3953,-3900,-3850,-3803,-3757,-3714,-3672,-3633,-3596,-3560,-3527,-3495,-3465,-3436,-3409,-3383,-3359,-3337,-3315,-3295,-3276,-3258,-3242,-3226,-3211,-3197,-3184,-3172,-3161,-3150,-3141,-3131,-3123,-3115,-3107,-3100,-3094,-3088,-3082,-3077,-3072,-3067,-3063,-3059,-3055,-3052,-3049,-3046,-3043,-3041,-3039,-3036,-3034,-3033,-3031,-3029,-3028,-3027,-3025,-3024,-3023,-3022,-3021,-3020,-3020,-3019,-3018,-3018,-3017,-3016,-3016,-3016,-3015,-3015,-3014,-3014,-3014,-3013,-3013,-3013,-3013,-3013,-3012,-3012,-3012],[-20865,-20504,-20145,-19788,-19433,-19079,-18728,-18379,-18032,-17687,-17344,-17004,-16667,-16332,-15999,-15670,-15343,-15020,-14699,-14382,-14068,-13757,-13450,-13146,-12846,-12550,-12258,-11970,-11685,-11406,-11130,-10859,-10592,-10331,-10073,-9821,-9573,-9331,-9093,-8861,-8634,-8412,-8195,-7984,-7778,-7577,-7382,-7192,-7008,-6829,-6656,-6488,-6326,-6169,-6017,-5871,-5730,-5594,-5463,-5338,-5217,-5101,-4990,-4883,-4781,-4684,-4591,-4502,-4417,-4336,-4259,-4186,-4116,-4050,-3987,-3928,-3871,-3818,-3768,-3720,-3675,-3632,-3592,-3554,-3519,-3485,-3453,-3424,-3396,-3370,-3345,-3322,-3301,-3281,-3262,-3244,-3228,-3212,-3198,-3185,-3172,-3160,-3150,-3139,-3130,-3121,-3113,-3106,-3099,-3092,-3086,-3080,-3075,-3070,-3066,-3061,-3058,-3054,-3051,-3048,-3045,-3042,-3040,-3037,-3035,-3033,-3032,-3030,-3028,-3027,-3026,-3025,-3023,-3022,-3021,-3021,-3020,-3019,-3018,-3018,-3017,-3017,-3016,-3016,-3015,-3015,-3014,-3014,-3014,-3014,-3013,-3013,-3013,-3013,-3012,-3012,-3012,-3012,-3012,-3012,-3012,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011,-3011],[-20495,-20119,-19743,-19369,-18996,-18625,-18255,-17886,-17519,-17153,-16789,-16426,-16066,-15707,-15350,-14996,-14643,-14293,-13945,-13600,-13258,-12918,-12581,-12246,-11916,-11588,-11264,-10943,-10626,-10313,-10004,-9700,-9400,-9104,-8813,-8528,-8247,-7972,-7703,-7439,-7181,-6930,-6685,-6447,-6216,-5991,-5775,-5565,-5363,-5169,-4983,-4805,-4635,-4474,-4321,-4176,-4040,-3912,-3793,-3682,-3579,-3485,-3398,-3319,-3248,-3183,-3126,-3075,-3030,-2991,-2958,-2929,-2905,-2886,-2870,-2858,-2848,-2842,-2838,-2836,-2835,-2836,-2839,-2842,-2846,-2851,-2856,-2862,-2868,-2874,-2881,-2887,-2893,-2899,-2905,-2911,-2916,-2922,-2927,-2932,-2937,-2941,-2946,-2950,-2954,-2957,-2961,-2964,-2967,-2970,-2973,-2975,-2978,-2980,-2982,-2984,-2986,-2988,-2989,-2991,-2992,-2994,-2995,-2996,-2997,-2998,-2999,-3000,-3000,-3001,-3002,-3002,-3003,-3004,-3004,-3005,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010],[-20298,-19913,-19529,-19145,-18762,-18380,-17999,-17619,-17240,-16863,-16486,-16110,-15736,-15364,-14992,-14623,-14254,-13888,-13523,-13161,-12800,-12441,-12085,-11731,-11380,-11031,-10685,-10342,-10003,-9666,-9333,-9004,-8679,-8358,-8041,-7729,-7422,-7120,-6823,-6532,-6247,-5968,-5696,-5430,-5172,-4922,-4679,-4445,-4219,-4002,-3795,-3597,-3409,-3232,-3065,-2909,-2764,-2630,-2508,-2398,-2299,-2212,-2136,-2072,-2019,-1976,-1945,-1923,-1910,-1907,-1911,-1923,-1942,-1966,-1995,-2028,-2065,-2104,-2144,-2186,-2228,-2270,-2312,-2353,-2393,-2431,-2468,-2503,-2537,-2568,-2599,-2627,-2654,-2679,-2702,-2724,-2744,-2764,-2781,-2798,-2814,-2828,-2841,-2854,-2865,-2876,-2886,-2895,-2904,-2912,-2919,-2926,-2933,-2938,-2944,-2949,-2954,-2958,-2962,-2966,-2969,-2972,-2975,-2978,-2980,-2983,-2985,-2987,-2989,-2990,-2992,-2993,-2995,-2996,-2997,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010,-3010,-3010,-3010,-3010,-3010,-3010,-3010],[-20174,-19783,-19392,-19003,-18613,-18224,-17836,-17449,-17062,-16676,-16291,-15907,-15524,-15141,-14760,-14380,-14001,-13623,-13247,-12872,-12499,-12127,-11757,-11389,-11022,-10658,-10296,-9937,-9580,-9225,-8874,-8526,-8180,-7839,-7501,-7167,-6837,-6512,-6192,-5876,-5566,-5262,-4964,-4672,-4387,-4110,-3840,-3578,-3325,-3081,-2847,-2622,-2409,-2206,-2016,-1837,-1671,-1518,-1379,-1254,-1144,-1048,-967,-901,-851,-816,-796,-790,-799,-822,-857,-903,-961,-1027,-1102,-1183,-1269,-1359,-1450,-1542,-1633,-1723,-1810,-1894,-1974,-2050,-2121,-2188,-2251,-2309,-2363,-2413,-2460,-2502,-2542,-2579,-2612,-2643,-2672,-2699,-2723,-2745,-2766,-2785,-2803,-2819,-2834,-2848,-2861,-2872,-2883,-2893,-2902,-2911,-2919,-2926,-2932,-2938,-2944,-2949,-2954,-2959,-2963,-2966,-2970,-2973,-2976,-2979,-2981,-2984,-2986,-2988,-2989,-2991,-2993,-2994,-2995,-2997,-2998,-2999,-3000,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010,-3010,-3010,-3010,-3010],[-20109,-19715,-19321,-18928,-18535,-18143,-17751,-17359,-16969,-16578,-16189,-15799,-15411,-15024,-14637,-14251,-13866,-13482,-13099,-12717,-12336,-11957,-11579,-11202,-10827,-10454,-10082,-9713,-9345,-8980,-8617,-8257,-7899,-7545,-7193,-6845,-6501,-6160,-5824,-5492,-5165,-4843,-4526,-4215,-3911,-3613,-3322,-3039,-2764,-2498,-2240,-1993,-1756,-1529,-1315,-1113,-923,-748,-586,-440,-309,-195,-98,-17,45,89,115,122,111,82,36,-27,-106,-199,-304,-421,-546,-677,-813,-951,-1089,-1225,-1356,-1483,-1603,-1717,-1822,-1921,-2011,-2095,-2172,-2242,-2306,-2365,-2419,-2468,-2512,-2553,-2591,-2625,-2657,-2685,-2712,-2736,-2758,-2778,-2797,-2814,-2830,-2845,-2858,-2870,-2881,-2892,-2901,-2910,-2918,-2925,-2932,-2939,-2944,-2950,-2954,-2959,-2963,-2967,-2970,-2974,-2976,-2979,-2982,-2984,-2986,-2988,-2990,-2991,-2993,-2994,-2996,-2997,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3003,-3004,-3005,-3005,-3005,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010,-3010,-3010],[-20068,-19672,-19276,-18881,-18486,-18091,-17696,-17302,-16909,-16515,-16123,-15730,-15339,-14948,-14557,-14167,-13778,-13389,-13002,-12615,-12229,-11845,-11461,-11079,-10697,-10318,-9939,-9562,-9187,-8814,-8443,-8074,-7707,-7343,-6981,-6622,-6266,-5914,-5565,-5220,-4879,-4542,-4211,-3884,-3563,-3248,-2939,-2637,-2342,-2055,-1777,-1508,-1248,-998,-760,-533,-319,-118,69,241,397,537,659,763,847,912,957,980,982,962,921,858,774,671,548,409,255,89,-87,-269,-455,-640,-823,-1000,-1169,-1329,-1478,-1615,-1741,-1857,-1961,-2056,-2141,-2219,-2289,-2352,-2409,-2461,-2508,-2551,-2590,-2625,-2657,-2687,-2714,-2739,-2761,-2782,-2801,-2818,-2834,-2848,-2861,-2874,-2885,-2895,-2904,-2913,-2921,-2928,-2935,-2941,-2947,-2952,-2957,-2961,-2965,-2969,-2972,-2975,-2978,-2981,-2983,-2985,-2987,-2989,-2991,-2992,-2994,-2995,-2996,-2998,-2999,-3000,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010,-3010],[-20046,-19649,-19252,-18856,-18459,-18063,-17667,-17272,-16877,-16482,-16087,-15693,-15299,-14906,-14513,-14121,-13730,-13339,-12948,-12559,-12170,-11782,-11395,-11009,-10624,-10240,-9858,-9477,-9097,-8719,-8342,-7968,-7595,-7224,-6856,-6490,-6127,-5767,-5409,-5056,-4705,-4359,-4017,-3680,-3347,-3020,-2698,-2383,-2074,-1772,-1478,-1192,-916,-648,-391,-145,89,311,520,714,893,1055,1201,1328,1436,1524,1591,1635,1657,1655,1629,1579,1505,1406,1284,1140,975,792,593,381,161,-65,-291,-514,-729,-935,-1128,-1307,-1471,-1620,-1755,-1875,-1983,-2080,-2167,-2245,-2314,-2377,-2433,-2484,-2530,-2571,-2609,-2643,-2675,-2703,-2729,-2753,-2774,-2794,-2812,-2829,-2844,-2858,-2870,-2882,-2893,-2902,-2911,-2919,-2927,-2934,-2940,-2946,-2951,-2956,-2960,-2964,-2968,-2972,-2975,-2978,-2980,-2983,-2985,-2987,-2989,-2991,-2992,-2994,-2995,-2996,-2998,-2999,-3000,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010],[-20032,-19634,-19237,-18839,-18442,-18045,-17648,-17252,-16855,-16459,-16063,-15668,-15273,-14878,-14484,-14090,-13697,-13304,-12912,-12520,-12129,-11739,-11349,-10961,-10573,-10186,-9800,-9416,-9032,-8650,-8270,-7890,-7513,-7138,-6764,-6393,-6024,-5657,-5293,-4932,-4574,-4220,-3869,-3523,-3181,-2843,-2511,-2184,-1863,-1548,-1240,-940,-648,-365,-91,174,427,668,897,1113,1314,1500,1669,1821,1954,2067,2160,2230,2277,2300,2297,2269,2214,2132,2022,1886,1724,1538,1329,1100,856,599,334,68,-196,-453,-697,-926,-1138,-1330,-1503,-1658,-1795,-1917,-2025,-2120,-2205,-2281,-2349,-2409,-2463,-2512,-2556,-2596,-2632,-2664,-2694,-2721,-2746,-2769,-2789,-2808,-2825,-2841,-2855,-2868,-2880,-2891,-2901,-2910,-2918,-2926,-2933,-2939,-2945,-2950,-2955,-2960,-2964,-2968,-2971,-2975,-2978,-2980,-2983,-2985,-2987,-2989,-2991,-2992,-2994,-2995,-2996,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3010],[-20024,-19626,-19228,-18830,-18432,-18035,-17637,-17240,-16843,-16446,-16050,-15653,-15257,-14862,-14467,-14072,-13677,-13283,-12890,-12497,-12104,-11713,-11321,-10931,-10541,-10153,-9765,-9378,-8992,-8607,-8224,-7842,-7462,-7083,-6706,-6330,-5957,-5586,-5218,-4852,-4489,-4129,-3772,-3419,-3070,-2726,-2385,-2050,-1720,-1396,-1079,-768,-464,-169,118,396,663,920,1165,1398,1616,1821,2010,2182,2336,2471,2586,2679,2749,2795,2816,2810,2777,2715,2624,2504,2355,2176,1971,1740,1486,1213,925,628,328,30,-260,-535,-793,-1030,-1244,-1435,-1604,-1753,-1884,-1999,-2100,-2189,-2268,-2338,-2401,-2456,-2506,-2551,-2592,-2629,-2662,-2692,-2720,-2745,-2768,-2789,-2808,-2825,-2841,-2855,-2868,-2880,-2891,-2901,-2910,-2919,-2926,-2933,-2940,-2946,-2951,-2956,-2960,-2965,-2968,-2972,-2975,-2978,-2981,-2983,-2985,-2987,-2989,-2991,-2993,-2994,-2995,-2997,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009],[-20019,-19620,-19222,-18823,-18425,-18027,-17629,-17232,-16834,-16437,-16040,-15643,-15246,-14850,-14454,-14058,-13663,-13268,-12873,-12479,-12086,-11693,-11300,-10908,-10517,-10127,-9737,-9348,-8961,-8574,-8188,-7804,-7421,-7039,-6659,-6281,-5904,-5530,-5157,-4787,-4420,-4055,-3693,-3334,-2979,-2628,-2281,-1939,-1601,-1269,-942,-622,-308,-1,297,587,868,1138,1398,1646,1882,2104,2312,2503,2678,2835,2972,3089,3183,3254,3300,3319,3311,3274,3207,3109,2979,2818,2625,2402,2151,1873,1574,1257,928,593,261,-63,-371,-659,-923,-1159,-1369,-1553,-1714,-1854,-1976,-2082,-2175,-2257,-2329,-2394,-2451,-2502,-2548,-2589,-2626,-2660,-2691,-2719,-2744,-2767,-2788,-2808,-2825,-2841,-2855,-2869,-2881,-2892,-2902,-2911,-2919,-2927,-2934,-2940,-2946,-2951,-2956,-2961,-2965,-2969,-2972,-2975,-2978,-2981,-2983,-2986,-2988,-2990,-2991,-2993,-2994,-2996,-2997,-2998,-2999,-3000,-3001,-3002,-3002,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009,-3009],[-20010,-19610,-19211,-18812,-18413,-18014,-17616,-17217,-16818,-16420,-16022,-15624,-15226,-14828,-14430,-14033,-13636,-13239,-12842,-12446,-12050,-11655,-11259,-10864,-10470,-10076,-9683,-9290,-8898,-8507,-8116,-7726,-7337,-6950,-6563,-6177,-5793,-5410,-5028,-4648,-4270,-3894,-3520,-3149,-2779,-2413,-2050,-1690,-1333,-980,-632,-288,52,385,713,1034,1349,1656,1954,2244,2524,2794,3052,3298,3530,3748,3950,4135,4302,4449,4574,4677,4754,4806,4829,4822,4783,4710,4602,4457,4274,4052,3791,3492,3157,2787,2389,1968,1531,1089,652,230,-165,-527,-849,-1130,-1371,-1575,-1748,-1895,-2019,-2126,-2218,-2298,-2369,-2430,-2485,-2533,-2577,-2616,-2651,-2683,-2713,-2739,-2763,-2785,-2805,-2824,-2840,-2855,-2868,-2881,-2892,-2902,-2911,-2920,-2927,-2934,-2941,-2947,-2952,-2957,-2961,-2966,-2969,-2973,-2976,-2979,-2982,-2984,-2986,-2988,-2990,-2992,-2993,-2995,-2996,-2997,-2998,-2999,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009,-3009,-3009],[-20006,-19607,-19208,-18808,-18409,-18010,-17611,-17212,-16813,-16414,-16015,-15616,-15218,-14819,-14421,-14023,-13625,-13227,-12830,-12432,-12035,-11639,-11242,-10846,-10450,-10054,-9659,-9265,-8870,-8477,-8084,-7691,-7300,-6909,-6518,-6129,-5741,-5353,-4967,-4583,-4199,-3817,-3437,-3058,-2682,-2307,-1935,-1565,-1198,-835,-474,-117,236,585,929,1268,1602,1930,2251,2565,2871,3169,3458,3736,4004,4260,4503,4732,4946,5143,5322,5482,5621,5738,5829,5895,5932,5938,5912,5850,5752,5615,5436,5215,4950,4640,4286,3888,3451,2979,2478,1959,1434,915,418,-44,-460,-825,-1135,-1395,-1610,-1787,-1935,-2058,-2163,-2253,-2331,-2399,-2458,-2510,-2556,-2597,-2634,-2668,-2699,-2727,-2753,-2776,-2798,-2817,-2834,-2850,-2864,-2877,-2889,-2899,-2909,-2917,-2925,-2932,-2939,-2945,-2951,-2956,-2960,-2965,-2969,-2972,-2975,-2978,-2981,-2984,-2986,-2988,-2990,-2992,-2993,-2995,-2996,-2997,-2998,-2999,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009,-3009],[-20005,-19605,-19206,-18806,-18407,-18007,-17608,-17209,-16810,-16410,-16011,-15612,-15214,-14815,-14416,-14018,-13619,-13221,-12823,-12425,-12027,-11630,-11232,-10835,-10439,-10042,-9646,-9250,-8855,-8460,-8065,-7671,-7278,-6885,-6493,-6101,-5711,-5321,-4932,-4544,-4157,-3772,-3388,-3005,-2624,-2244,-1867,-1491,-1118,-747,-379,-14,348,706,1061,1412,1758,2099,2434,2764,3087,3403,3712,4012,4303,4584,4854,5113,5359,5590,5807,6007,6189,6352,6493,6611,6705,6771,6809,6815,6788,6724,6622,6479,6292,6060,5780,5452,5074,4647,4174,3658,3106,2527,1934,1344,772,237,-247,-669,-1026,-1321,-1561,-1756,-1914,-2045,-2155,-2248,-2328,-2397,-2457,-2509,-2555,-2597,-2634,-2668,-2699,-2727,-2753,-2777,-2799,-2818,-2836,-2851,-2866,-2878,-2890,-2900,-2910,-2918,-2926,-2933,-2940,-2946,-2951,-2957,-2961,-2965,-2969,-2973,-2976,-2979,-2982,-2984,-2986,-2988,-2990,-2992,-2994,-2995,-2996,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3003,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3008,-3008,-3008,-3008,-3008,-3009,-3009,-3009],[-20003,-19603,-19203,-18804,-18404,-18005,-17605,-17205,-16806,-16407,-16007,-15608,-15208,-14809,-14410,-14011,-13612,-13213,-12815,-12416,-12017,-11619,-11221,-10823,-10425,-10027,-9630,-9232,-8835,-8439,-8042,-7646,-7251,-6855,-6460,-6066,-5672,-5279,-4886,-4495,-4103,-3713,-3324,-2935,-2548,-2162,-1777,-1393,-1011,-631,-253,124,498,870,1239,1605,1968,2328,2684,3036,3383,3725,4062,4393,4718,5036,5346,5648,5940,6223,6494,6754,7001,7233,7451,7651,7833,7995,8135,8251,8342,8405,8437,8437,8401,8326,8210,8050,7842,7584,7273,6906,6481,5998,5457,4861,4215,3527,2813,2088,1378,705,94,-437,-880,-1237,-1518,-1738,-1912,-2051,-2166,-2261,-2342,-2410,-2469,-2520,-2564,-2604,-2640,-2673,-2704,-2732,-2759,-2783,-2804,-2824,-2842,-2857,-2871,-2884,-2895,-2905,-2914,-2922,-2929,-2936,-2943,-2948,-2954,-2959,-2963,-2967,-2971,-2974,-2977,-2980,-2983,-2985,-2987,-2989,-2991,-2993,-2994,-2996,-2997,-2998,-2999,-3000,-3001,-3002,-3003,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3007,-3007,-3007,-3007,-3008,-3008,-3008,-3008],[-20002,-19602,-19203,-18803,-18403,-18003,-17604,-17204,-16804,-16405,-16005,-15606,-15206,-14807,-14407,-14008,-13609,-13210,-12811,-12412,-12013,-11614,-11215,-10817,-10418,-10020,-9622,-9224,-8826,-8429,-8031,-7634,-7237,-6841,-6445,-6049,-5654,-5259,-4864,-4470,-4077,-3684,-3292,-2901,-2510,-2121,-1732,-1344,-958,-573,-189,193,573,952,1329,1703,2075,2445,2811,3174,3534,3890,4242,4590,4932,5270,5601,5926,6243,6553,6855,7147,7429,7700,7960,8206,8437,8653,8852,9031,9191,9328,9441,9528,9585,9612,9604,9560,9475,9348,9173,8949,8671,8336,7941,7484,6961,6373,5721,5009,4246,3445,2625,1812,1036,329,-286,-793,-1196,-1506,-1742,-1923,-2067,-2183,-2278,-2358,-2425,-2482,-2530,-2573,-2611,-2646,-2678,-2709,-2737,-2764,-2788,-2810,-2829,-2847,-2862,-2876,-2888,-2899,-2908,-2917,-2925,-2932,-2939,-2945,-2950,-2955,-2960,-2964,-2968,-2972,-2975,-2978,-2981,-2984,-2986,-2988,-2990,-2992,-2994,-2995,-2996,-2998,-2999,-3000,-3001,-3001,-3002,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007,-3007,-3007,-3008,-3008],[-20001,-19601,-19202,-18802,-18402,-18002,-17602,-17203,-16803,-16403,-16003,-15604,-15204,-14804,-14405,-14005,-13606,-13206,-12807,-12408,-12008,-11609,-11210,-10811,-10412,-10013,-9614,-9216,-8817,-8419,-8021,-7622,-7225,-6827,-6430,-6032,-5635,-5239,-4842,-4446,-4051,-3656,-3261,-2867,-2473,-2080,-1688,-1296,-905,-515,-126,262,649,1035,1419,1802,2183,2562,2939,3315,3688,4058,4426,4790,5151,5508,5862,6211,6555,6893,7226,7553,7872,8184,8488,8783,9067,9341,9602,9851,10085,10304,10506,10689,10851,10991,11107,11196,11257,11285,11280,11236,11152,11024,10847,10619,10334,9989,9580,9103,8554,7930,7231,6458,5615,4712,3767,2804,1860,975,188,-470,-989,-1382,-1671,-1885,-2047,-2174,-2276,-2360,-2428,-2484,-2531,-2571,-2607,-2641,-2673,-2704,-2733,-2761,-2787,-2810,-2830,-2849,-2864,-2878,-2890,-2901,-2910,-2918,-2926,-2933,-2939,-2945,-2951,-2956,-2960,-2965,-2969,-2972,-2976,-2979,-2982,-2984,-2986,-2989,-2990,-2992,-2994,-2995,-2997,-2998,-2999,-3000,-3001,-3002,-3002,-3003,-3004,-3004,-3005,-3005,-3006,-3006,-3006,-3007]]};
+
+// ===== IARF math: Bessel ratio, Stehfest, models, derivative, matching =====
+const LN2 = Math.LN2, LN10 = Math.LN10, EULER = 0.5772156649015329;
+
+// K1(x)/K0(x), accurate to ~1e-14
+function ratioK1K0(x) {
+  if (x < 2) {
+    const y = x * x / 4;
+    let t0 = 1, t1 = 1, H = 0, I0 = 0, I1s = 0, S0 = 0, S1 = 0;
+    for (let k = 0; k < 60; k++) {
+      if (k > 0) { t0 *= y / (k * k); t1 *= y / (k * (k + 1)); H += 1 / k; }
+      I0 += t0; I1s += t1;
+      S0 += H * t0;                       // H_k * y^k/(k!)^2 (k>=1)
+      S1 += (2 * (H - EULER) + 1 / (k + 1)) * t1; // psi(k+1)+psi(k+2)
+      if (t0 < 1e-18 && k > 2) break;
+    }
+    const L = Math.log(x / 2);
+    const K0 = -(L + EULER) * I0 + S0;
+    const K1 = 1 / x + L * (x / 2) * I1s - (x / 4) * S1;
+    return K1 / K0;
+  }
+  // Steed's continued fraction CF2 (Numerical Recipes bessik, mu = 0)
+  let b = 2 * (1 + x), d = 1 / b, h = d, delh = d, q1 = 0, q2 = 1;
+  const a1 = 0.25; let q = a1, c = a1, a = -a1, s = 1 + q * delh;
+  for (let i = 2; i < 500; i++) {
+    a -= 2 * (i - 1); c = -a * c / i;
+    const qn = (q1 - b * q2) / a; q1 = q2; q2 = qn; q += c * qn;
+    b += 2; d = 1 / (b + a * d); delh = (b * d - 1) * delh; h += delh;
+    const dels = q * delh; s += dels;
+    if (Math.abs(dels / s) < 1e-16) break;
+  }
+  h = a1 * h;
+  return (x + 0.5 - h) / x;
+}
+
+const N_ST = 16;
+const V_ST = (() => {
+  const f = n => { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; };
+  const n2 = N_ST / 2, v = [];
+  for (let i = 1; i <= N_ST; i++) {
+    let s = 0;
+    for (let k = Math.floor((i + 1) / 2); k <= Math.min(i, n2); k++)
+      s += Math.pow(k, n2) * f(2 * k) / (f(n2 - k) * f(k) * f(k - 1) * f(i - k) * f(2 * k - i));
+    v.push(((i + n2) % 2 ? -1 : 1) * s);
+  }
+  return v;
+})();
+
+// Dimensionless IARF + WBS + skin (Gringarten form). Returns [pD, tau*dpD/dtau] at tau = tD/CD
+function iarfPD(tau, Cg) {
+  const a = LN2 / tau; let p = 0, dd = 0;
+  for (let i = 0; i < N_ST; i++) {
+    const s = (i + 1) * a, x = Math.sqrt(s / Cg);
+    const pb = 1 / (s * (x * ratioK1K0(x) + s));
+    p += V_ST[i] * pb; dd += V_ST[i] * s * pb;
+  }
+  return [a * p, tau * a * dd];
+}
+
+// Exponential integral E1
+function E1(x) {
+  if (x <= 0) return Infinity;
+  if (x < 1) {
+    let s = 0, t = 1;
+    for (let k = 1; k < 60; k++) { t *= -x / k; s += -t / k; if (Math.abs(t / k) < 1e-17) break; }
+    return -EULER - Math.log(x) + s;
+  }
+  if (x > 700) return 0;
+  let b = x + 1, c = 1e300, d = 1 / b, h = d;
+  for (let i = 1; i < 200; i++) {
+    const an = -i * i; b += 2; d = 1 / (an * d + b); c = b + an / c;
+    const del = c * d; h *= del; if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return h * Math.exp(-x);
+}
+
+// ---- field-unit model ----
+// P: {k, C, S}; W: well/fluid {q,B,mu,h,phi,ct,rw}; T: test {type:'dd'|'bu', tp}; opts.faultL (synthetic only)
+function makeModel(P, W, T, faultL) {
+  const CD = 0.8936 * P.C / (W.phi * W.ct * W.h * W.rw * W.rw);
+  const Cg = CD * Math.exp(2 * P.S);
+  const pfac = 141.2 * W.q * W.B * W.mu / (P.k * W.h);
+  const tfac = 0.000295 * P.k * W.h / (W.mu * P.C);
+  const tDfac = 0.0002637 * P.k / (W.phi * W.mu * W.ct * W.rw * W.rw);
+  const rD2 = faultL ? Math.pow(2 * faultL / W.rw, 2) : 0;
+  const dd = t => {           // drawdown [dp, dp'] at time t (hr)
+    const r = iarfPD(tfac * t, Cg);
+    let p = r[0], d = r[1];
+    if (rD2) { const u = rD2 / (4 * tDfac * t); p += 0.5 * E1(u); d += 0.5 * Math.exp(-u); }
+    return [pfac * p, pfac * d];
+  };
+  let ddTp = null;
+  const at = t => {
+    if (T.type !== 'bu') return dd(t);
+    const tp = T.tp; if (!ddTp) ddTp = dd(tp);
+    const B = dd(tp + t), D = dd(t);
+    return [ddTp[0] - B[0] + D[0], (D[1] * (tp + t) - B[1] * t) / tp];
+  };
+  return { at, dd, CD, Cg, pfac, tfac };
+}
+
+// Agarwal equivalent time
+const equivTime = (t, T) => T.type === 'bu' ? T.tp * t / (T.tp + t) : t;
+
+// Bourdet derivative vs ln(te), smoothing L in log10 cycles
+function bourdet(te, dp, L) {
+  const n = te.length, x = te.map(v => Math.log(v)), out = new Array(n).fill(NaN), Ln = L * LN10;
+  for (let i = 0; i < n; i++) {
+    let j = i - 1; while (j > 0 && x[i] - x[j] < Ln) j--;
+    let k = i + 1; while (k < n - 1 && x[k] - x[i] < Ln) k++;
+    if (i === 0) { if (n > 1) out[i] = (dp[k] - dp[i]) / (x[k] - x[i]); continue; }
+    if (i === n - 1) { out[i] = (dp[i] - dp[j]) / (x[i] - x[j]); continue; }
+    const dl = x[i] - x[j], dr = x[k] - x[i];
+    out[i] = ((dp[i] - dp[j]) / dl * dr + (dp[k] - dp[i]) / dr * dl) / (dl + dr);
+  }
+  return out;
+}
+
+function median(a) { const b = a.filter(Number.isFinite).sort((p, q) => p - q); if (!b.length) return NaN; const m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; }
+function movMedian(a, w) { const h = w >> 1; return a.map((_, i) => median(a.slice(Math.max(0, i - h), i + h + 1))); }
+
+// Choose smallest L giving a reasonably smooth derivative
+function autoL(te, dp) {
+  const Ls = [0.1, 0.15, 0.2, 0.3, 0.4, 0.5];
+  for (const L of Ls) {
+    const big = Math.max(...dp) * 0.05;
+    const d = bourdet(te, dp, L).map(v => v > 0 ? Math.log10(v) : NaN).filter((v, i) => dp[i] > big);
+    const sm = movMedian(d, 7);
+    const neg = d.filter(v => !Number.isFinite(v)).length / d.length;
+    const rough = median(d.map((v, i) => Math.abs(v - sm[i])));
+    if (rough < 0.015 && neg < 0.02) return L;
+  }
+  return 0.5;
+}
+
+// ---- saved type-curve lookup (log-log linear interp) ----
+function savedCurveAt(j, logTau) {
+  const SC = SAVED_CURVES, f = (logTau - SC.lt0) * SC.ppd;
+  if (f < 0 || f > SC.n - 1) return null;
+  const i = Math.min(SC.n - 2, Math.floor(f)), w = f - i;
+  return [(SC.p[j][i] * (1 - w) + SC.p[j][i + 1] * w) / 1e4, (SC.d[j][i] * (1 - w) + SC.d[j][i + 1] * w) / 1e4];
+}
+
+// Detect IARF plateau: earliest flat derivative segment >= minSpan log cycles
+function findPlateau(te, der, minSpan = 0.3, tol = 0.07, dp = null) {
+  const idx = [], lx = [], ld = [];
+  // radial flow needs a small log-slope of dp (dp'/dp < 0.25); this rejects the top of the storage hump
+  te.forEach((t, i) => { if (der[i] > 0 && (!dp || der[i] / dp[i] < 0.25)) { idx.push(i); lx.push(Math.log10(t)); ld.push(Math.log10(der[i])); } });
+  const sd = movMedian(ld, 5), n = sd.length;
+  if (n < 4) return null;
+  let best = null;
+  for (let i = 0; i < n; i++) {
+    let lo = sd[i], hi = sd[i], j = i;
+    while (j + 1 < n) { const v = sd[j + 1]; if (lx[j + 1] - lx[j] > 0.3) break; const nlo = Math.min(lo, v), nhi = Math.max(hi, v); if (nhi - nlo > 2 * tol) break; lo = nlo; hi = nhi; j++; }
+    const span = lx[j] - lx[i];
+    if (span >= minSpan) {
+      // must not be the rising unit-slope part: check overall slope
+      const slope = (sd[j] - sd[i]) / Math.max(span, 1e-9);
+      if (Math.abs(slope) < 0.12) {
+        best = { i0: idx[i], i1: idx[j], span, level: Math.pow(10, median(ld.slice(i, j + 1))) };
+        // extend greedily to its full length and stop at the first (earliest) plateau
+        break;
+      }
+    }
+  }
+  if (best) {   // also report a longer later plateau as an alternative? keep earliest
+    const tail = [];
+    for (let m = 0; m < n; m++) if (idx[m] > best.i1) tail.push({ i: idx[m], r: sd[m] - Math.log10(best.level) });
+    best.tail = tail;
+  }
+  return best;
+}
+
+// Stage 1: scan the saved family (17 curves) over time shifts; vertical shift solved in closed form
+function scanFamily(te, dp, der, use) {
+  const SC = SAVED_CURVES;
+  const pts = []; te.forEach((t, i) => { if (use[i] && dp[i] > 0) pts.push({ lt: Math.log10(t), lp: Math.log10(dp[i]), ld: der[i] > 0 ? Math.log10(der[i]) : null }); });
+  if (pts.length < 5) return null;
+  const ltmin = pts[0].lt, ltmax = pts[pts.length - 1].lt;
+  const gmin = SC.lt0, gmax = SC.lt0 + (SC.n - 1) / SC.ppd;
+  let best = null; const perCurve = [];
+  for (let j = 0; j < SC.C.length; j++) {
+    let cb = null;
+    for (let th = gmin - ltmin - 0.5; th <= gmax - ltmax + 0.5; th += 0.02) {
+      const rs = []; let cnt = 0;
+      for (const p of pts) {
+        const v = savedCurveAt(j, p.lt + th); if (!v) continue; cnt++;
+        rs.push(p.lp - v[0]); if (p.ld !== null) rs.push(p.ld - v[1]);
+      }
+      if (cnt < 0.8 * pts.length) continue;
+      const beta = rs.reduce((s, r) => s + r, 0) / rs.length;
+      const mis = rs.reduce((s, r) => s + (r - beta) ** 2, 0) / rs.length;
+      if (!cb || mis < cb.mis) cb = { j, th, beta, mis };
+    }
+    perCurve.push(cb);
+    if (cb && (!best || cb.mis < best.mis)) best = cb;
+  }
+  if (!best) return null;
+  // parabolic refinement of log Cg between neighbouring curves
+  let logCg = Math.log10(SC.C[best.j]);
+  const a = perCurve[best.j - 1], c = perCurve[best.j + 1];
+  if (a && c) {
+    const x0 = Math.log10(SC.C[best.j - 1]), x1 = logCg, x2 = Math.log10(SC.C[best.j + 1]);
+    const y0 = a.mis, y1 = best.mis, y2 = c.mis;
+    const den = (x0 - x1) * (x0 - x2) * (x1 - x2);
+    const A = (x2 * (y1 - y0) + x1 * (y0 - y2) + x0 * (y2 - y1)) / den;
+    const B = (x2 * x2 * (y0 - y1) + x1 * x1 * (y2 - y0) + x0 * x0 * (y1 - y2)) / den;
+    if (A > 0) logCg = Math.min(x2, Math.max(x0, -B / (2 * A)));
+  }
+  return { ...best, logCg, rms: Math.sqrt(best.mis) };
+}
+
+// residuals of the exact model in log10 space. theta = [log10 k, log10 C, S, (log10 Lfault)]
+function thetaToP(th) { return { k: 10 ** th[0], C: 10 ** th[1], S: th[2], L: th.length > 3 ? 10 ** th[3] : 0 }; }
+function residuals(theta, ctx) {
+  const P = thetaToP(theta);
+  const M = makeModel(P, ctx.W, ctx.T, P.L);
+  const n = ctx.t.length, mp = new Array(n);
+  for (let i = 0; i < n; i++) mp[i] = M.at(ctx.t[i])[0];
+  const md = bourdet(ctx.te, mp, ctx.L);     // model derivative smoothed exactly like the data
+  const r = [];
+  for (let i = 0; i < n; i++) {
+    if (!ctx.use[i]) continue;
+    if (ctx.dp[i] > 0) r.push(mp[i] > 0 ? (Math.log10(mp[i]) - Math.log10(ctx.dp[i])) * ctx.wp : 5);
+    if (ctx.der[i] > 0) r.push(md[i] > 0 ? (Math.log10(md[i]) - Math.log10(ctx.der[i])) * ctx.wd : 5);
+  }
+  return r;
+}
+
+function solveN(A, b) {
+  const n = b.length, M = A.map((row, i) => [...row, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]]; if (Math.abs(M[c][c]) < 1e-300) return null;
+    for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+function invN(A) { const n = A.length, out = A.map(() => []); for (let j = 0; j < n; j++) { const e = new Array(n).fill(0); e[j] = 1; const x = solveN(A, e); if (!x) return null; for (let i = 0; i < n; i++) out[i][j] = x[i]; } return out; }
+
+// Stage 2: Levenberg-Marquardt on the exact model
+function levenberg(theta0, ctx, maxIt = 50) {
+  const np = theta0.length, H = [1e-4, 1e-4, 1e-3, 1e-4].slice(0, np);
+  const clamp = t => t.map((v, i) => i === 2 ? Math.max(-7, Math.min(80, v)) : v);
+  const jac = (th, r) => H.map((h, j) => { const t2 = th.slice(); t2[j] += h; const r2 = residuals(t2, ctx); return r2.map((v, i) => (v - r[i]) / h); });
+  const normal = J => J.map(a => J.map(b => a.reduce((s, v, i) => s + v * b[i], 0)));
+  let th = clamp(theta0.slice()), r = residuals(th, ctx), f = r.reduce((s, v) => s + v * v, 0), lam = 1e-2, it = 0;
+  for (; it < maxIt; it++) {
+    const J = jac(th, r), JTJ = normal(J), JTr = J.map(a => a.reduce((s, v, i) => s + v * r[i], 0));
+    let improved = false, rel = 1;
+    for (let tries = 0; tries < 10; tries++) {
+      const A = JTJ.map((row, i) => row.map((v, j) => v + (i === j ? lam * (JTJ[i][i] + 1e-9) : 0)));
+      const step = solveN(A, JTr.map(v => -v)); if (!step) { lam *= 10; continue; }
+      const tn = clamp(th.map((v, i) => v + Math.max(-1, Math.min(1, step[i]))));
+      const rn = residuals(tn, ctx), fn = rn.reduce((s, v) => s + v * v, 0);
+      if (rn.length === r.length && fn < f) { rel = (f - fn) / f; th = tn; r = rn; f = fn; lam = Math.max(lam / 3, 1e-7); improved = true; break; }
+      lam *= 8;
+    }
+    if (!improved || rel < 1e-8) break;
+  }
+  const J = jac(th, r), inv = invN(normal(J));
+  const s2 = f / Math.max(1, r.length - np);
+  const sd = inv ? inv.map((row, i) => Math.sqrt(Math.max(0, row[i] * s2))) : th.map(() => NaN);
+  return { theta: th, rms: Math.sqrt(f / r.length), sd, n: r.length, iters: it + 1 };
+}
+
+// Semilog (MDH / Agarwal) straight-line analysis over [i0,i1]
+function semilog(te, dp, i0, i1, W) {
+  const xs = [], ys = [];
+  for (let i = i0; i <= i1; i++) if (dp[i] > 0) { xs.push(Math.log10(te[i])); ys.push(dp[i]); }
+  if (xs.length < 4) return null;
+  const n = xs.length, mx = xs.reduce((a, b) => a + b) / n, my = ys.reduce((a, b) => a + b) / n;
+  let sxy = 0, sxx = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; }
+  const m = sxy / sxx, b = my - m * mx;
+  const k = 162.6 * W.q * W.B * W.mu / (m * W.h);
+  const p1 = b; // dp at te = 1 hr
+  const S = 1.151 * (p1 / m - Math.log10(k / (W.phi * W.mu * W.ct * W.rw * W.rw)) + 3.2275);
+  return { m, b, k, S, p1, n };
+}
+
+
+// ---- full automatic interpretation ----
+function paramsFromScan(sc, W) {
+  const pfac = Math.pow(10, sc.beta), tfac = Math.pow(10, sc.th);
+  const k = 141.2 * W.q * W.B * W.mu / (W.h * pfac), C = 0.000295 * k * W.h / (W.mu * tfac);
+  const CD = 0.8936 * C / (W.phi * W.ct * W.h * W.rw * W.rw);
+  return { k, C, S: 0.5 * Math.log(Math.pow(10, sc.logCg) / CD) };
+}
+
+// Late-time departure of data derivative from model derivative; returns first index of a sustained departure
+function lateDeparture(t, der, md, use, thr = 0.06) {
+  const pts = [];
+  for (let i = 0; i < t.length; i++) if (der[i] > 0 && md[i] > 0) pts.push({ i, r: Math.log10(der[i] / md[i]) });
+  const sm = movMedian(pts.map(p => p.r), 7);
+  for (let a = Math.floor(pts.length * 0.3); a < pts.length - 4; a++) {
+    const rest = sm.slice(a); const sg = Math.sign(rest[0]);
+    if (Math.abs(rest[0]) < thr) continue;
+    const ok = rest.filter(v => Math.sign(v) === sg && Math.abs(v) > thr).length / rest.length;
+    const span = Math.log10(t[pts[pts.length - 1].i] / t[pts[a].i]);
+    if (ok > 0.85 && span >= 0.25) return { i: pts[a].i, sign: sg, ratioEnd: Math.pow(10, median(rest.slice(-5))), span };
+  }
+  return null;
+}
+
+function autoMatch(D, W, T, opt = {}) {
+  const log = [];
+  const t = D.t, dp = D.dp, n = t.length, te = t.map(v => equivTime(v, T));
+  const L = opt.L ?? autoL(te, dp);
+  log.push(opt.L == null ? `Chose derivative smoothing L = ${L} log cycle from the noise level.` : `Derivative smoothing L = ${L} (set by you).`);
+  const der = bourdet(te, dp, L);
+  let use = t.map(v => v >= (opt.t0 ?? 0) && v <= (opt.t1 ?? Infinity));
+  // plateau
+  const pl = findPlateau(te, der, 0.3, 0.05, dp);
+  if (pl) log.push(`Found a flat derivative at ${pl.level.toPrecision(3)} psi from ${fmtT(t[pl.i0])} to ${fmtT(t[pl.i1])} (${pl.span.toFixed(2)} log cycles): radial flow.`);
+  else log.push('No flat derivative found: the test may not have reached radial flow.');
+  let cutIdx = null;
+  if (pl && opt.t1 == null) {
+    for (let a = 0; a < pl.tail.length; a++) {
+      const rest = pl.tail.slice(a);
+      if (rest.length >= 5 && rest.filter(o => Math.abs(o.r) > 0.1).length / rest.length > 0.85) { cutIdx = pl.tail[a].i; break; }
+    }
+    if (cutIdx !== null) { use = use.map((u, i) => u && i < cutIdx); log.push(`Late data from ${fmtT(t[cutIdx])} leave the radial-flow level, so they are left out of the match.`); }
+  }
+  // stage 1: saved family
+  const sc = scanFamily(te, dp, der, use);
+  if (!sc) return { error: 'Not enough usable points to match. Add data or widen the match window.' };
+  const P0 = paramsFromScan(sc, W);
+  log.push(`Scanned the 17 saved type curves: best is C<sub>D</sub>e<sup>2S</sup> ≈ ${fmtE(Math.pow(10, sc.logCg))} (rms ${(sc.rms * 100).toFixed(1)}% in log).`);
+  // stage 2: exact regression, with departure check
+  const ctx = { t, te, dp, der, use, W, T, L, wp: 1, wd: 1 };
+  let lm = levenberg([Math.log10(P0.k), Math.log10(P0.C), P0.S], ctx);
+  log.push(`Refined on the exact model by nonlinear regression: ${lm.iters} iterations, rms ${(lm.rms * 100).toFixed(1)}%.`);
+  let dep = null;
+  for (let pass = 0; pass < 3 && opt.t1 == null; pass++) {
+    const M = makeModel(thetaToP(lm.theta), W, T);
+    const md = bourdet(te, t.map(v => M.at(v)[0]), L);
+    const d = lateDeparture(t, der, md, use);
+    if (!d) break;
+    dep = d;
+    const lastUsed = use.lastIndexOf(true);
+    if (d.i > lastUsed) break;
+    use = use.map((u, i) => u && i < d.i); ctx.use = use;
+    if (use.filter(Boolean).length < 8) break;
+    lm = levenberg(lm.theta, ctx);
+    log.push(`Derivative departs from the model after ${fmtT(t[d.i])}; refitted without those points.`);
+  }
+  if (!dep) { // check the excluded tail too, for reporting
+    const M = makeModel(thetaToP(lm.theta), W, T);
+    const md = bourdet(te, t.map(v => M.at(v)[0]), L);
+    dep = lateDeparture(t, der, md, use);
+  }
+  let model = 'iarf', fault = null;
+  const use0 = t.map(v => v >= (opt.t0 ?? 0) && v <= (opt.t1 ?? Infinity));
+  if (dep && dep.sign > 0 && dep.ratioEnd > 1.35 && dep.ratioEnd < 2.8 && opt.t1 == null) {
+    // Derivative climbs toward double: try radial flow + one sealing fault (image well) on all the data
+    const Pq = thetaToP(lm.theta), lvl = 0.5 * 141.2 * W.q * W.B * W.mu / (Pq.k * W.h);
+    let tmid = t[dep.i];
+    for (let i = dep.i; i < n; i++) if (der[i] > 1.5 * lvl) { tmid = t[i]; break; }
+    const tmidE = equivTime(tmid, T);
+    const L0 = Math.sqrt(0.0002637 * Pq.k * tmidE / (W.phi * W.mu * W.ct * 1.443));
+    const fctx = { ...ctx, use: use0 };
+    const lmF = levenberg([...lm.theta, Math.log10(L0)], fctx);
+    const iarfAll = residuals(lm.theta, fctx), rmsIarfAll = Math.sqrt(iarfAll.reduce((s, v) => s + v * v, 0) / iarfAll.length);
+    if (lmF.rms < 0.6 * rmsIarfAll) {
+      fault = { lm: lmF, L: 10 ** lmF.theta[3], rmsIarfAll };
+      log.push(`The derivative rises toward ${dep.ratioEnd.toFixed(1)}× the radial-flow level. A radial-flow + sealing-fault model fits all ${use0.filter(Boolean).length} points with rms ${(lmF.rms * 100).toFixed(1)}% (radial flow alone: ${(rmsIarfAll * 100).toFixed(1)}%), so it was selected. Fault distance ≈ ${fault.L.toFixed(0)} ft.`);
+      model = 'fault'; lm = lmF; use = use0;
+    } else log.push(`Tried adding a sealing fault, but it did not explain the late data well (rms ${(lmF.rms * 100).toFixed(1)}%), so it was not used.`);
+  }
+  const P = thetaToP(lm.theta);
+  return { P, lm, sc, P0, L, der, te, use, plateau: pl, departure: dep, log, model, fault };
+}
+
+const fmtT = v => (v >= 100 ? v.toFixed(0) : v >= 1 ? v.toPrecision(3) : v.toPrecision(2)) + ' hr';
+const fmtE = v => { if (v >= 0.01 && v < 1e4) return v.toPrecision(2); const e = Math.floor(Math.log10(v)), m = v / 10 ** e; return (m.toFixed(1) === '1.0' ? '' : m.toFixed(1) + '×') + '10<sup>' + e + '</sup>'; };
+
+if (typeof module !== 'undefined') module.exports = { thetaToP, residuals, autoMatch, lateDeparture, ratioK1K0, iarfPD, E1, makeModel, bourdet, autoL, scanFamily, levenberg, findPlateau, semilog, equivTime, savedCurveAt };
+
+// ================= UI =================
+const $ = id => document.getElementById(id);
+const PRESETS = {
+  damaged:    { label: 'Damaged well, drawdown',          k: 25, S: 6,    C: 0.015, type: 'dd', tp: 72,  dur: 48,  sigma: 0.02, fault: 0 },
+  stimulated: { label: 'Acidized well, buildup',          k: 80, S: -2.5, C: 0.008, type: 'bu', tp: 72,  dur: 36,  sigma: 0.02, fault: 0 },
+  short:      { label: 'Tight rock, test stopped early',  k: 3,  S: 10,   C: 0.05,  type: 'dd', tp: 72,  dur: 6,   sigma: 0.02, fault: 0 },
+  fault:      { label: 'Sealing fault 250 ft away',       k: 40, S: 2,    C: 0.01,  type: 'dd', tp: 72,  dur: 100, sigma: 0.02, fault: 250 },
+  faultbu:    { label: 'Sealing fault, buildup',          k: 40, S: 2,    C: 0.01,  type: 'bu', tp: 200, dur: 100, sigma: 0.02, fault: 250 },
+  noisy:      { label: 'Noisy gauge, ±0.5 psi',           k: 15, S: 1,    C: 0.02,  type: 'dd', tp: 72,  dur: 72,  sigma: 0.5,  fault: 0 },
+};
+const WELL0 = { q: 500, B: 1.2, mu: 0.8, h: 50, phi: 0.15, ct: 1e-5, rw: 0.354, pi: 5000 };
+
+const st = { source: 'synth', data: null, truth: null, res: null, P: null, manual: false, fam: true, reg: true, adjust: false, err: null };
+
+// ---------- helpers ----------
+const num = id => { const v = parseFloat(String($(id).value).replace(/\s/g, '')); return Number.isFinite(v) ? v : NaN; };
+function sig(v, n = 3) {
+  if (!Number.isFinite(v)) return '–';
+  const a = Math.abs(v);
+  if (a !== 0 && (a < 1e-3 || a >= 1e6)) { const e = Math.floor(Math.log10(a)); return (v / 10 ** e).toFixed(n - 1) + 'e' + e; }
+  if (a >= 10 ** n) return Math.round(v).toLocaleString('en-US');
+  return Number(v.toPrecision(n)).toString();
+}
+const sgn = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(2);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function rng(seed) { let a = seed >>> 0 || 1; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function getW() { return { q: num('w_q'), B: num('w_B'), mu: num('w_mu'), h: num('w_h'), phi: num('w_phi'), ct: num('w_ct'), rw: num('w_rw') }; }
+function getT() { return { type: $('t_type').value, tp: num('t_tp') }; }
+const validW = W => Object.values(W).every(v => Number.isFinite(v) && v > 0);
+
+// ---------- synthetic data ----------
+function makeSynthetic() {
+  const W = getW(), T = getT();
+  const P = { k: num('s_k'), S: num('s_S'), C: num('s_C') }, faultL = Math.max(0, num('s_fault') || 0);
+  const dur = num('s_dur'), ppd = Math.round(num('s_ppd')) || 20, sigma = Math.max(0, num('s_sigma') || 0);
+  if (!validW(W) || !(P.k > 0) || !(P.C > 0) || !Number.isFinite(P.S) || !(dur > 0.001) || (T.type === 'bu' && !(T.tp > 0)))
+    return { error: 'Check the synthetic inputs: k, C, duration, t_p and the well properties must all be positive numbers.' };
+  const M = makeModel(P, W, T, faultL), r = rng(Math.round(num('s_seed')) || 1);
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - r())) * Math.cos(2 * Math.PI * r());
+  const t = [], dp = [];
+  const l0 = -3, l1 = Math.log10(dur), n = Math.max(8, Math.round((l1 - l0) * ppd));
+  for (let i = 0; i <= n; i++) {
+    const tt = 10 ** (l0 + (l1 - l0) * i / n), v = M.at(tt)[0] + sigma * gauss();
+    t.push(tt); dp.push(Math.round(v * 1000) / 1000);           // 0.001 psi gauge resolution
+  }
+  // pressure at dt = 0: pi for drawdown, flowing pressure at shut-in for buildup
+  const p0 = T.type === 'bu' ? WELL0.pi - M.dd(T.tp)[0] : WELL0.pi;
+  $('w_p0').value = p0.toFixed(1);
+  return { t, dp, truth: { ...P, L: faultL } };
+}
+
+function parsePasted() {
+  const rows = $('p_text').value.split(/\r?\n/), t = [], y = [];
+  for (const line of rows) {
+    if (/^\s*(#|$)/.test(line)) continue;
+    const parts = line.trim().split(/[\s,;\t]+/).map(Number);
+    if (parts.length < 2 || !parts.slice(0, 2).every(Number.isFinite)) continue;
+    t.push(parts[0]); y.push(parts[1]);
+  }
+  const p0 = num('w_p0'), asP = $('p_col').value === 'p';
+  if (asP && !Number.isFinite(p0)) return { error: 'Enter the pressure at Δt = 0 so pressures can be turned into Δp.' };
+  const pts = t.map((v, i) => ({ t: v, dp: asP ? Math.abs(y[i] - p0) : y[i] })).filter(o => o.t > 0 && o.dp > 0).sort((a, b) => a.t - b.t);
+  if (pts.length < 10) return { error: `Found ${pts.length} usable rows. Paste at least 10 rows of positive Δt and Δp.` };
+  return { t: pts.map(o => o.t), dp: pts.map(o => o.dp), truth: null };
+}
+
+// ---------- analysis ----------
+function analyze() {
+  st.err = null;
+  const W = getW(), T = getT();
+  if (!validW(W)) { st.err = 'Check the well properties: every value must be a positive number.'; return render(); }
+  const D = st.source === 'synth' ? makeSynthetic() : parsePasted();
+  if (D.error) { st.err = D.error; if (st.source === 'paste') $('p_msg').textContent = D.error; return render(); }
+  if (st.source === 'paste') $('p_msg').textContent = `Loaded ${D.t.length} points, ${sig(D.t[0])} to ${sig(D.t[D.t.length - 1])} hr.`;
+  st.data = D; st.truth = D.truth;
+  const opt = {};
+  if (!$('a_Lauto').checked) opt.L = num('a_L');
+  if (!$('a_wauto').checked) { const a = num('a_t0'), b = num('a_t1'); if (a > 0) opt.t0 = a; if (b > 0) opt.t1 = b; }
+  const res = autoMatch(D, W, T, opt);
+  if (res.error) { st.err = res.error; st.res = null; return render(); }
+  st.res = res; st.P = { ...res.P }; st.manual = false;
+  $('a_L').value = res.L; $('a_Lv').textContent = res.L.toFixed(2) + ' cycle';
+  if ($('a_wauto').checked) {
+    const iu = res.use.map((u, i) => u ? i : -1).filter(i => i >= 0);
+    $('a_t0').value = sig(D.t[iu[0]], 3); $('a_t1').value = sig(D.t[iu[iu.length - 1]], 3);
+  }
+  render();
+}
+
+function ctxFor(res, W, T) { return { t: st.data.t, te: res.te, dp: st.data.dp, der: res.der, use: res.use, W, T, L: res.L, wp: 1, wd: 1 }; }
+const PtoTheta = P => P.L ? [Math.log10(P.k), Math.log10(P.C), P.S, Math.log10(P.L)] : [Math.log10(P.k), Math.log10(P.C), P.S];
+
+function refine() {
+  if (!st.res) return;
+  const W = getW(), T = getT(), ctx = ctxFor(st.res, W, T);
+  const lm = levenberg(PtoTheta(st.P), ctx);
+  st.P = thetaToP(lm.theta); st.res.lm = lm; st.manual = false; st.refined = true;
+  st.res.log = [...st.res.log.filter(s => !s.startsWith('Refined again')), `Refined again from your manual match: rms ${(lm.rms * 100).toFixed(1)}%.`];
+  render();
+}
+
+// Everything derived from the current parameters
+function derive() {
+  const W = getW(), T = getT(), D = st.data, res = st.res, P = st.P;
+  const M = makeModel(P, W, T, P.L);
+  const kh = P.k * W.h, coef = 141.2 * W.q * W.B * W.mu / kh, m = 162.6 * W.q * W.B * W.mu / kh;
+  const n = D.t.length, tEnd = D.t[n - 1];
+  const mp = D.t.map(t => M.at(t)[0]), md = bourdet(res.te, mp, res.L);
+  const ctx = ctxFor(res, W, T), r = residuals(PtoTheta(P), ctx), rms = Math.sqrt(r.reduce((s, v) => s + v * v, 0) / r.length);
+  const tews = Math.max(0, (200000 + 12000 * P.S) * W.mu * P.C / kh);
+  const dPs = coef * P.S;
+  const Mi = makeModel({ k: P.k, C: P.C, S: P.S }, W, T, 0);
+  const ddRef = T.type === 'bu' ? Mi.dd(T.tp)[0] : Mi.dd(tEnd)[0];
+  const FE = (ddRef - dPs) / ddRef;
+  const teEnd = res.te[n - 1];
+  const ri = 0.029 * Math.sqrt(P.k * (T.type === 'bu' ? teEnd : tEnd) / (W.phi * W.mu * W.ct));
+  const p0 = num('w_p0');
+  const pstar = T.type === 'bu' && Number.isFinite(p0) ? p0 + Mi.dd(T.tp)[0] : NaN;
+  // semilog window: detected plateau within used points, else used points after t_ews
+  let i0 = -1, i1 = -1;
+  if (res.plateau) { i0 = res.plateau.i0; i1 = res.plateau.i1; }
+  else { for (let i = 0; i < n; i++) if (res.use[i] && D.t[i] > tews) { if (i0 < 0) i0 = i; i1 = i; } }
+  if (i0 >= 0) { while (i1 > i0 && !res.use[i1]) i1--; }
+  const sl = i0 >= 0 && i1 - i0 >= 3 ? semilog(res.te, D.dp, i0, i1, W) : null;
+  const sd = res.lm.sd;
+  const unc = st.manual ? null : { k: (10 ** (1.96 * sd[0]) - 1) * 100, C: (10 ** (1.96 * sd[1]) - 1) * 100, S: 1.96 * sd[2], L: sd[3] != null ? (10 ** (1.96 * sd[3]) - 1) * 100 : null };
+  // flow regimes
+  let wbsEnd = null;
+  for (let i = 0; i < n; i++) { if (res.der[i] > 0 && res.der[i] / D.dp[i] > 0.8) wbsEnd = D.t[i]; else if (D.t[i] > 1e-3 * 3 && wbsEnd !== null) break; }
+  return { W, T, M, kh, m, coef, rms, tews, dPs, FE, ri, pstar, sl, slRange: [i0, i1], unc, mp, md, wbsEnd, tEnd, CD: M.CD, Cg: M.Cg, rwa: W.rw * Math.exp(-P.S) };
+}
+
+function confidence(d) {
+  const res = st.res, reasons = [];
+  let score = 0;
+  const span = res.plateau ? res.plateau.span : 0;
+  if (res.model === 'fault') { reasons.push(`Radial flow + sealing fault model explains all the data`); score += 1; }
+  if (span >= 0.5) { reasons.push(`Radial flow seen for ${span.toFixed(1)} log cycles`); score += 2; }
+  else if (span >= 0.3) { reasons.push(`Radial flow seen for only ${span.toFixed(1)} log cycle`); score += 1; }
+  else reasons.push('Radial flow not reached: k and S are not unique');
+  if (d.tEnd < d.tews) reasons.push(`Test ended before storage effects end (≈ ${sig(d.tews, 2)} hr)`);
+  if (d.rms < 0.03) { reasons.push(`Model fits within ${(d.rms * 100).toFixed(1)}% (rms, log)`); score += 1; }
+  else if (d.rms < 0.08) reasons.push(`Model fits within ${(d.rms * 100).toFixed(1)}% (rms, log)`);
+  else { reasons.push(`Loose fit: ${(d.rms * 100).toFixed(0)}% rms`); score -= 1; }
+  if (d.unc) {
+    if (d.unc.k < 10 && d.unc.S < 1) score += 1;
+    else if (d.unc.k > 50 || d.unc.S > 3) { reasons.push(`Wide 95% range on k (±${sig(d.unc.k, 2)}%) and S (±${sig(d.unc.S, 2)})`); score -= 2; }
+  }
+  if (d.sl && span >= 0.3 && res.model !== 'fault') {
+    const dk = Math.abs(d.sl.k / st.P.k - 1) * 100;
+    if (dk < 10) { reasons.push(`Semilog k agrees within ${dk.toFixed(0)}%`); score += 1; } else reasons.push(`Semilog k differs by ${dk.toFixed(0)}%`);
+  }
+  if (st.manual) reasons.unshift('Manual match: press “Refine from here” to regress');
+  const level = span < 0.3 && res.model !== 'fault' ? 'low' : score >= 4 ? 'high' : score >= 2 ? 'medium' : 'low';
+  return { level, reasons };
+}
+
+// ---------- rendering ----------
+const ICON = {
+  high: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M4.5 8.2l2.3 2.3 4.7-4.9" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  medium: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M8 4.2v4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.4" r="1.1" fill="currentColor"/></svg>',
+  low: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor" opacity=".18"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+};
+
+function render() {
+  if (st.err || !st.res) {
+    $('verdict').innerHTML = `<span class="pill crit">${ICON.low}Cannot match</span><p class="msg" style="padding:0">${st.err || 'No data yet.'}</p>`;
+    $('kpis').innerHTML = ''; ['narr', 'resTbl', 'derived', 'steps', 'dataTbl'].forEach(id => $(id).innerHTML = '');
+    clearCanvas($('ll')); clearCanvas($('sl'));
+    return;
+  }
+  const d = derive(); st.d = d;
+  const conf = confidence(d); st.conf = conf;
+  renderSummary(d, conf); renderTables(d); renderNarrative(d, conf); renderSteps(); renderDataTable(d);
+  $('m_cg').value = Math.log10(d.Cg).toFixed(2); $('m_cgv').innerHTML = fmtE(d.Cg);
+  drawLogLog(); drawSemilog();
+}
+
+function truthLine(key, est) {
+  if (!st.truth) return '';
+  const tv = st.truth[key];
+  if (key === 'S') return `<span class="truth">true ${(tv < 0 ? "−" : "") + Math.abs(tv)} · off ${sgn(est - tv)}</span>`;
+  return `<span class="truth">true ${sig(tv)} · off ${(est / tv - 1) * 100 >= 0 ? '+' : '−'}${Math.abs((est / tv - 1) * 100).toFixed(1)}%</span>`;
+}
+
+function renderSummary(d, conf) {
+  const P = st.P, res = st.res;
+  const cls = conf.level === 'high' ? 'good' : conf.level === 'medium' ? 'warn' : 'crit';
+  const name = res.model === 'fault' ? 'Radial flow + sealing fault' : 'Infinite-acting radial flow';
+  $('verdict').innerHTML = `
+    <span class="eyebrow">${st.manual ? 'Manual match' : 'Auto-match'} · ${d.T.type === 'bu' ? 'buildup' : 'drawdown'}</span>
+    <div class="model-name">${name}</div>
+    <span class="pill ${cls}">${ICON[conf.level]}${conf.level[0].toUpperCase() + conf.level.slice(1)} confidence</span>
+    <ul>${conf.reasons.map(r => `<li>${r}</li>`).join('')}</ul>`;
+  const u = d.unc;
+  const k4 = [
+    ['Permeability', sig(P.k), 'md', u ? `±${sig(u.k, 2)}%` : '', truthLine('k', P.k)],
+    ['Skin', (P.S >= 0 ? '' : '−') + Math.abs(P.S).toFixed(2), '', u ? `±${sig(u.S, 2)}` : '', truthLine('S', P.S)],
+    ['Storage C', sig(P.C), 'bbl/psi', u ? `±${sig(u.C, 2)}%` : '', truthLine('C', P.C)],
+    res.model === 'fault'
+      ? ['Fault distance', sig(P.L), 'ft', u && u.L != null ? `±${sig(u.L, 2)}%` : '', st.truth && st.truth.L ? truthLine('L', P.L) : '']
+      : ['kh', sig(d.kh), 'md·ft', u ? `±${sig(u.k, 2)}%` : '', st.truth ? `<span class="truth">true ${sig(st.truth.k * d.W.h)}</span>` : ''],
+  ];
+  $('kpis').innerHTML = k4.map(([l, v, un, pm, tr]) => `<div class="kpi"><span class="eyebrow">${l}</span><span class="v">${v}<small>${un}</small></span><span class="pm">${pm ? pm + ' (95%)' : '&nbsp;'}</span>${tr}</div>`).join('');
+}
+
+function errCell(est, tv, isAbs) {
+  if (tv == null || !Number.isFinite(tv) || (!isAbs && !tv)) return '<td>–</td>';
+  const e = isAbs ? est - tv : (est / tv - 1) * 100;
+  const a = Math.abs(e), c = isAbs ? (a < 0.3 ? 'err-ok' : a < 1 ? 'err-mid' : 'err-bad') : (a < 5 ? 'err-ok' : a < 15 ? 'err-mid' : 'err-bad');
+  return `<td class="${c}">${isAbs ? sgn(e) : (e >= 0 ? '+' : '−') + a.toFixed(1) + '%'}</td>`;
+}
+
+function renderTables(d) {
+  const P = st.P, T = st.truth, u = d.unc, sl = d.sl, fault = st.res.model === 'fault';
+  const rows = [
+    ['Permeability k', 'md', sig(P.k, 4), u ? `±${sig(u.k, 2)}%` : '–', sl ? sig(sl.k, 4) : '–', T ? sig(T.k) : '–', errCell(P.k, T && T.k)],
+    ['Flow capacity kh', 'md·ft', sig(d.kh, 4), u ? `±${sig(u.k, 2)}%` : '–', sl ? sig(sl.k * d.W.h, 4) : '–', T ? sig(T.k * d.W.h) : '–', errCell(d.kh, T && T.k * d.W.h)],
+    ['Skin S', '', P.S.toFixed(2), u ? `±${sig(u.S, 2)}` : '–', sl ? sl.S.toFixed(2) : '–', T ? T.S.toFixed(2) : '–', errCell(P.S, T && T.S, true)],
+    ['Wellbore storage C', 'bbl/psi', sig(P.C, 4), u ? `±${sig(u.C, 2)}%` : '–', '–', T ? sig(T.C) : '–', errCell(P.C, T && T.C)],
+    ['C<sub>D</sub>', '', sig(d.CD, 4), '–', '–', '–', '<td>–</td>'],
+    ['C<sub>D</sub>e<sup>2S</sup>', '', fmtE(d.Cg), '–', '–', '–', '<td>–</td>'],
+  ];
+  if (fault) rows.push(['Sealing fault distance', 'ft', sig(P.L, 4), u && u.L != null ? `±${sig(u.L, 2)}%` : '–', '–', T && T.L ? sig(T.L) : '–', errCell(P.L, T && T.L ? T.L : null)]);
+  $('resTbl').innerHTML = `<thead><tr><th>Parameter</th><th>Type-curve match</th><th>95% range</th><th>Semilog</th><th>True value</th><th>Error</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${r[0]} ${r[1] ? `<span class="unit">${r[1]}</span>` : ''}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td>${r[5]}</td>${r[6]}</tr>`).join('') + '</tbody>';
+  $('resNote').textContent = st.truth ? 'synthetic: compared with the true values' : 'your data';
+  const der = [
+    ['Semilog slope m', sl ? `${sig(sl.m)} psi/cycle` : '–'],
+    ['Pressure drop from skin', `${sig(d.dPs)} psi`],
+    ['Flow efficiency', st.res.plateau && d.FE > 0 ? `${(d.FE * 100).toFixed(0)}%` : 'needs radial flow'],
+    ['Effective wellbore radius', `${sig(d.rwa)} ft`],
+    ['End of storage effects', `≈ ${sig(d.tews, 2)} hr`],
+    ['Radius of investigation', `${sig(d.ri, 3)} ft`],
+  ];
+  if (Number.isFinite(d.pstar)) der.push(['Extrapolated p*', `${d.pstar.toFixed(1)} psi`]);
+  der.push(['Smoothing L / points used', `${st.res.L.toFixed(2)} · ${st.res.use.filter(Boolean).length} of ${st.data.t.length}`]);
+  $('derived').innerHTML = der.map(([l, v]) => `<div><span class="l">${l}</span><span class="v">${v}</span></div>`).join('');
+}
+
+function skinWords(S) {
+  if (S < -3) return 'strongly stimulated, typical of a hydraulically fractured well';
+  if (S < -1) return 'stimulated, as after an acid job';
+  if (S <= 1) return 'close to undamaged';
+  if (S <= 5) return 'moderately damaged';
+  return 'severely damaged';
+}
+
+function renderNarrative(d, conf) {
+  const res = st.res, P = st.P, D = st.data, n = D.t.length, out = [];
+  const K = v => `<span class="k">${v}</span>`;
+  // 1. diagnostic
+  let s1 = '';
+  if (d.wbsEnd) s1 += `Early data follow a unit slope until about ${K(sig(d.wbsEnd, 2) + ' hr')}: the wellbore is filling, so pressure only reflects storage (C ≈ ${K(sig(P.C, 2) + ' bbl/psi')}). `;
+  let im = 0; for (let i = 1; i < n; i++) if (res.der[i] > res.der[im]) im = i;
+  if (d.Cg > 30 && res.der[im] > 1.5 * 0.5 * d.coef) s1 += `The derivative then humps to ${K(sig(res.der[im]) + ' psi')} near ${K(sig(D.t[im], 2) + ' hr')}; a hump this size is the signature of positive skin. `;
+  if (res.plateau) s1 += `From ${K(sig(D.t[res.plateau.i0], 2) + ' hr')} to ${K(sig(D.t[res.plateau.i1], 2) + ' hr')} the derivative is flat at ${K(sig(res.plateau.level) + ' psi')} over ${res.plateau.span.toFixed(1)} log cycles. That is infinite-acting radial flow.`;
+  else s1 += `The derivative never flattens, so radial flow was not reached by ${K(sig(d.tEnd, 2) + ' hr')}. Storage effects should end near ${K(sig(d.tews, 2) + ' hr')}, so a valid test would need to run to about ${K(sig(d.tews * 10, 2) + ' hr')} to see a log cycle of radial flow.`;
+  out.push(s1);
+  // 2. late time
+  const dep = res.departure;
+  if (res.model === 'fault') out.push(`After ${K(sig(D.t[dep.i], 2) + ' hr')} the derivative climbs toward ${dep.ratioEnd.toFixed(1)}× the radial-flow level. A single sealing fault does exactly this (it doubles the derivative), and the best fit puts it ${K(sig(P.L) + ' ft')} from the well. Another linear barrier, or lower permeability away from the well, can look similar.`);
+  else if (dep) out.push(dep.sign > 0
+    ? `After ${K(sig(D.t[dep.i], 2) + ' hr')} the derivative rises above the radial-flow level (×${dep.ratioEnd.toFixed(2)} at the end). This points to a barrier or lower mobility away from the well; those points were left out of the radial-flow match.`
+    : `After ${K(sig(D.t[dep.i], 2) + ' hr')} the derivative drops below the radial-flow level. Pressure support (a constant-pressure boundary or gas cap), improving mobility, or a dual-porosity transition can cause this; those points were left out.`);
+  // 3. results
+  const fe = d.FE * 100;
+  out.push(`The match gives kh = ${K(sig(d.kh) + ' md·ft')}, so k = ${K(sig(P.k) + ' md')} over ${sig(d.W.h)} ft. Skin is ${K(P.S.toFixed(1))}, which is ${skinWords(P.S)}. ` +
+    (P.S > 0 ? `Skin costs ${K(sig(d.dPs) + ' psi')} of extra drawdown` : `It saves ${K(sig(-d.dPs) + ' psi')} of drawdown`) +
+    (res.plateau && fe > 0 ? `, so flow efficiency is about ${K(fe.toFixed(0) + '%')}. ` : '. ') +
+    (P.S > 2 ? 'Positive skin can also come from partial penetration or high-rate turbulence; a multi-rate test would separate them from damage.' : ''));
+  // 4. semilog
+  if (d.sl) {
+    const dk = (d.sl.k / P.k - 1) * 100;
+    out.push(`Semilog check over the radial-flow points: m = ${K(sig(d.sl.m) + ' psi/cycle')}, giving k = ${K(sig(d.sl.k) + ' md')} (${dk >= 0 ? '+' : '−'}${Math.abs(dk).toFixed(0)}% from the match) and S = ${K(d.sl.S.toFixed(1))}.` +
+      (res.plateau ? '' : ' Without a radial-flow period this straight line is not a valid check.'));
+  }
+  // 5. radius
+  out.push(`By the end of the test the pressure transient had reached about ${K(sig(d.ri) + ' ft')} from the well. ${conf.level === 'high' ? 'The result is well constrained.' : conf.level === 'medium' ? 'Treat the result as a reasonable estimate.' : 'Treat the result as indicative only.'}`);
+  $('narr').innerHTML = out.map(p => `<p>${p}</p>`).join('');
+}
+
+function renderSteps() { $('steps').innerHTML = st.res.log.map(s => `<li>${s}</li>`).join('') + (st.manual ? '<li>You moved the match by hand. The results above use your match.</li>' : ''); }
+
+function renderDataTable(d) {
+  const D = st.data, res = st.res;
+  let h = '<thead><tr><th>Δt hr</th><th>t<sub>e</sub> hr</th><th>Δp psi</th><th>Δp′ psi</th><th>Model Δp</th><th>Model Δp′</th><th>Used</th></tr></thead><tbody>';
+  for (let i = 0; i < D.t.length; i++) h += `<tr><td>${sig(D.t[i], 4)}</td><td>${sig(res.te[i], 4)}</td><td>${D.dp[i].toFixed(3)}</td><td>${Number.isFinite(res.der[i]) ? res.der[i].toFixed(3) : '–'}</td><td>${d.mp[i].toFixed(3)}</td><td>${d.md[i].toFixed(3)}</td><td>${res.use[i] ? 'yes' : 'no'}</td></tr>`;
+  $('dataTbl').innerHTML = h + '</tbody>';
+}
+
+// ---------- plotting ----------
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  cv.width = Math.max(1, Math.round(r.width * dpr)); cv.height = Math.max(1, Math.round(r.height * dpr));
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, r.width, r.height);
+  return { g, w: r.width, h: r.height };
+}
+function clearCanvas(cv) { setup(cv); }
+function axes(w, h, x, y) {
+  const m = { l: 60, r: 18, t: 22, b: 44 }; if (w < 480) { m.l = 50; m.r = 10; }
+  const pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const fx = x.log ? Math.log10 : v => v, fy = y.log ? Math.log10 : v => v;
+  const X0 = fx(x.min), X1 = fx(x.max), Y0 = fy(y.min), Y1 = fy(y.max);
+  return { m, pw, ph, x, y, fx, fy, X0, X1, Y0, Y1,
+    sx: v => m.l + (fx(v) - X0) / (X1 - X0) * pw, sy: v => m.t + ph - (fy(v) - Y0) / (Y1 - Y0) * ph,
+    ux: pw / (X1 - X0), uy: ph / (Y1 - Y0) };
+}
+function niceTicks(a, b, n = 6) { const s = (b - a) / n, p = 10 ** Math.floor(Math.log10(s)), f = s / p, st_ = (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * p; const out = []; for (let v = Math.ceil(a / st_) * st_; v <= b + 1e-9 * st_; v += st_) out.push(+v.toPrecision(12)); return out; }
+const decLabel = e => e >= 0 && e <= 4 ? String(10 ** e) : e < 0 && e >= -3 ? (10 ** e).toFixed(-e) : '1e' + e;
+function drawFrame(g, A, xLabel, yLabel) {
+  const ink3 = cssv('--ink-3'), line = cssv('--line'), line2 = cssv('--line-2'), ink2 = cssv('--ink-2');
+  g.save(); g.lineWidth = 1; g.font = `11px ${cssv('--f-mono')}`; g.fillStyle = ink3;
+  const vline = (px, c) => { g.strokeStyle = c; g.beginPath(); g.moveTo(Math.round(px) + .5, A.m.t); g.lineTo(Math.round(px) + .5, A.m.t + A.ph); g.stroke(); };
+  const hline = (py, c) => { g.strokeStyle = c; g.beginPath(); g.moveTo(A.m.l, Math.round(py) + .5); g.lineTo(A.m.l + A.pw, Math.round(py) + .5); g.stroke(); };
+  // x
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  if (A.x.log) {
+    for (let e = Math.floor(A.X0); e <= Math.ceil(A.X1); e++) {
+      for (let k = 2; k <= 9; k++) { const v = k * 10 ** e, lv = Math.log10(v); if (lv > A.X0 && lv < A.X1 && A.pw / (A.X1 - A.X0) > 40) vline(A.sx(v), line2); }
+      if (e >= A.X0 - 1e-9 && e <= A.X1 + 1e-9) { vline(A.sx(10 ** e), line); g.fillText(decLabel(e), A.sx(10 ** e), A.m.t + A.ph + 6); }
+    }
+  } else for (const v of niceTicks(A.X0, A.X1)) { vline(A.sx(v), line); g.fillText(sig(v), A.sx(v), A.m.t + A.ph + 6); }
+  // y
+  g.textAlign = 'right'; g.textBaseline = 'middle';
+  if (A.y.log) {
+    for (let e = Math.floor(A.Y0); e <= Math.ceil(A.Y1); e++) {
+      for (let k = 2; k <= 9; k++) { const v = k * 10 ** e, lv = Math.log10(v); if (lv > A.Y0 && lv < A.Y1 && A.ph / (A.Y1 - A.Y0) > 40) hline(A.sy(v), line2); }
+      if (e >= A.Y0 - 1e-9 && e <= A.Y1 + 1e-9) { hline(A.sy(10 ** e), line); g.fillText(decLabel(e), A.m.l - 6, A.sy(10 ** e)); }
+    }
+  } else for (const v of niceTicks(A.Y0, A.Y1, 5)) { hline(A.sy(v), line); g.fillText(sig(v), A.m.l - 6, A.sy(v)); }
+  g.fillStyle = ink2; g.font = `12px ${cssv('--f-body')}`; g.textAlign = 'center'; g.textBaseline = 'bottom';
+  g.fillText(xLabel, A.m.l + A.pw / 2, A.m.t + A.ph + 40);
+  g.save(); g.translate(14, A.m.t + A.ph / 2); g.rotate(-Math.PI / 2); g.textBaseline = 'middle'; g.fillText(yLabel, 0, 0); g.restore();
+  g.restore();
+}
+function clip(g, A) { g.save(); g.beginPath(); g.rect(A.m.l, A.m.t, A.pw, A.ph); g.clip(); }
+function polyline(g, A, xs, ys, color, width, dash, alpha = 1) {
+  g.save(); g.strokeStyle = color; g.lineWidth = width; g.globalAlpha = alpha; g.setLineDash(dash || []); g.lineJoin = 'round'; g.beginPath();
+  let pen = false;
+  for (let i = 0; i < xs.length; i++) {
+    const ok = xs[i] > 0 && (!A.y.log || ys[i] > 0) && Number.isFinite(ys[i]);
+    if (!ok) { pen = false; continue; }
+    const px = A.sx(xs[i]), py = A.sy(ys[i]);
+    if (!pen) { g.moveTo(px, py); pen = true; } else g.lineTo(px, py);
+  }
+  g.stroke(); g.restore();
+}
+function dots(g, A, xs, ys, color, use, r = 3.6) {
+  const surf = cssv('--surface');
+  for (let i = 0; i < xs.length; i++) {
+    if (!(xs[i] > 0) || !Number.isFinite(ys[i]) || (A.y.log && !(ys[i] > 0))) continue;
+    const px = A.sx(xs[i]), py = A.sy(ys[i]);
+    g.beginPath(); g.arc(px, py, r, 0, 2 * Math.PI);
+    if (use[i]) { g.fillStyle = color; g.globalAlpha = 0.85; g.fill(); g.globalAlpha = 1; g.lineWidth = 1; g.strokeStyle = surf; g.stroke(); }
+    else { g.globalAlpha = 0.6; g.lineWidth = 1.4; g.strokeStyle = color; g.stroke(); g.globalAlpha = 1; }
+  }
+}
+
+let LL = null, SL = null;
+function llRange() {
+  const D = st.data, res = st.res;
+  const ys = [...D.dp, ...res.der].filter(v => v > 0);
+  const lo = Math.log10(Math.max(Math.min(...ys), Math.max(...ys) * 1e-5)), hi = Math.log10(Math.max(...ys));
+  return { x: { log: true, min: 10 ** Math.floor(Math.log10(D.t[0]) + 1e-9), max: 10 ** Math.ceil(Math.log10(D.t[D.t.length - 1]) - 1e-9) },
+           y: { log: true, min: 10 ** Math.floor(lo), max: 10 ** (Math.ceil(hi + 0.15)) } };
+}
+
+function drawLogLog() {
+  const cv = $('ll'), { g, w, h } = setup(cv), D = st.data, res = st.res, d = st.d, P = st.P;
+  if (!LL || !st.dragging) LL = llRange();
+  const A = axes(w, h, LL.x, LL.y); st.llA = A;
+  const cDp = cssv('--s-dp'), cDer = cssv('--s-der'), cFam = cssv('--fam'), ink3 = cssv('--ink-3');
+  // bands
+  const bandLabels = [];
+  if (st.reg) {
+    clip(g, A);
+    const band = (a, b, col, label) => {
+      const x0 = Math.max(A.m.l, A.sx(a)), x1 = Math.min(A.m.l + A.pw, A.sx(b)); if (x1 <= x0) return;
+      g.fillStyle = col; g.fillRect(x0, A.m.t, x1 - x0, A.ph);
+      if (x1 - x0 > 54) bandLabels.push([label.toUpperCase(), x0 + 6]);
+    };
+    if (d.wbsEnd) band(LL.x.min, d.wbsEnd, cssv('--band-wbs'), 'Storage');
+    if (res.plateau) band(D.t[res.plateau.i0], D.t[res.plateau.i1], cssv('--band-iarf'), 'Radial flow');
+    if (res.departure) band(D.t[res.departure.i], LL.x.max, cssv('--band-late'), res.model === 'fault' ? 'Fault' : 'Late-time change');
+    g.restore();
+  }
+  drawFrame(g, A, d.T.type === 'bu' ? 'Shut-in time Δt (hr)' : 'Elapsed time Δt (hr)', 'Δp and Δp′ (psi)');
+  g.font = `500 10.5px ${cssv('--f-mono')}`; g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillStyle = ink3;
+  for (const [lab, x0] of bandLabels) g.fillText(lab, x0 - 6, A.m.t - 5);
+  clip(g, A);
+  // type-curve family (tracing paper)
+  if (st.fam) {
+    const SC = SAVED_CURVES, lt = Math.log10(d.M.tfac), lp = Math.log10(d.M.pfac);
+    g.font = `10px ${cssv('--f-mono')}`; g.fillStyle = cFam; g.textAlign = 'left'; g.textBaseline = 'middle';
+    let lastY = -1e9;
+    for (let j = SC.C.length - 1; j >= 0; j--) {
+      const xs = [], yp = [], yd = [];
+      for (let i = 0; i < SC.n; i++) { xs.push(10 ** (SC.lt0 + i / SC.ppd - lt)); yp.push(10 ** (SC.p[j][i] / 1e4 + lp)); yd.push(10 ** (SC.d[j][i] / 1e4 + lp)); }
+      polyline(g, A, xs, yp, cFam, 1, null, 0.55); polyline(g, A, xs, yd, cFam, 1, [3, 3], 0.45);
+      // label at the right edge of plot
+      const xr = LL.x.max, li = Math.round((Math.log10(xr) + lt - SC.lt0) * SC.ppd);
+      if (li > 0 && li < SC.n) { const yv = 10 ** (SC.p[j][li] / 1e4 + lp); const py = A.sy(yv) - 6; if (yv > LL.y.min && yv < LL.y.max && py - lastY > 12) { g.fillText(fmtPlain(SC.C[j]), A.m.l + A.pw - 34, py); lastY = py; } }
+    }
+  }
+  // data
+  dots(g, A, D.t, D.dp, cDp, res.use); dots(g, A, D.t, res.der, cDer, res.use);
+  // model on a fine grid
+  const xs = [], mp = [], md = [];
+  const a = Math.log10(LL.x.min), b = Math.log10(LL.x.max);
+  for (let i = 0; i <= 240; i++) { const t = 10 ** (a + (b - a) * i / 240); const v = d.M.at(t); xs.push(t); mp.push(v[0]); md.push(v[1]); }
+  st.modelLine = { xs, mp, md };
+  polyline(g, A, xs, mp, cDp, 2.2); polyline(g, A, xs, md, cDer, 2.2);
+  // IARF level guide
+  const lvl = 0.5 * d.coef;
+  polyline(g, A, [LL.x.min, LL.x.max], [lvl, lvl], ink3, 1, [6, 4], 0.8);
+  g.fillStyle = ink3; g.font = `10.5px ${cssv('--f-mono')}`; g.textAlign = 'left'; g.textBaseline = 'bottom';
+  g.fillText(`radial level ${sig(lvl)} psi`, A.m.l + 8, A.sy(lvl) - 3);
+  g.restore();
+  // legend
+  $('llLegend').innerHTML = `<span><i class="lg-dot" style="background:var(--s-dp)"></i>Δp</span><span><i class="lg-dot" style="background:var(--s-der)"></i>Δp′ Bourdet derivative</span><span><i class="lg-line" style="background:var(--s-dp)"></i><i class="lg-line" style="background:var(--s-der);margin-left:-3px"></i>Model</span><span><i class="lg-hollow"></i>Not used in match</span>` + (st.fam ? `<span><i class="lg-line" style="background:var(--fam)"></i>Saved type curves</span>` : '');
+}
+const fmtPlain = v => { const e = Math.round(Math.log10(v)); return Math.abs(Math.log10(v) - e) < 1e-6 ? (e >= -1 && e <= 3 ? String(v) : '1e' + e) : String(v); };
+
+function drawSemilog() {
+  const cv = $('sl'), { g, w, h } = setup(cv), D = st.data, res = st.res, d = st.d;
+  const te = res.te, sl = d.sl;
+  const x = { log: true, min: 10 ** Math.floor(Math.log10(te[0]) + 1e-9), max: 10 ** Math.ceil(Math.log10(te[te.length - 1]) - 1e-9) };
+  const ymax = Math.max(...D.dp) * 1.08;
+  const A = axes(w, h, x, { log: false, min: 0, max: ymax }); st.slA = A;
+  // highlight band for straight-line points
+  const [i0, i1] = d.slRange;
+  if (sl && i0 >= 0) { g.fillStyle = cssv('--band-iarf'); const x0 = A.sx(te[i0]), x1 = A.sx(te[i1]); g.fillRect(x0, A.m.t, x1 - x0, A.ph); }
+  drawFrame(g, A, d.T.type === 'bu' ? 'Equivalent time tₑ (hr)' : 'Elapsed time Δt (hr)', 'Δp (psi)');
+  clip(g, A);
+  const inLine = D.t.map((_, i) => sl && i >= i0 && i <= i1);
+  dots(g, A, te, D.dp, cssv('--s-dp'), inLine, 3.2);
+  polyline(g, A, st.modelLine ? st.modelLine.xs.map(t => equivTime(t, d.T)) : [], st.modelLine ? st.modelLine.mp : [], cssv('--s-dp'), 1.6, null, 0.7);
+  if (sl) {
+    const xa = x.min, xb = x.max;
+    polyline(g, A, [xa, xb], [sl.m * Math.log10(xa) + sl.b, sl.m * Math.log10(xb) + sl.b], cssv('--ink'), 1.6, [7, 4]);
+  }
+  g.restore();
+  $('slLegend').innerHTML = `<span><i class="lg-dot" style="background:var(--s-dp)"></i>Radial-flow points</span><span><i class="lg-hollow" style="border-color:var(--s-dp)"></i>Other points</span><span><i class="lg-line" style="background:var(--ink)"></i>Straight line</span>`;
+  $('slNote').textContent = sl ? `m = ${sig(sl.m)} psi/cycle` : 'no radial-flow line';
+}
+
+// ---------- interaction ----------
+function nearestIdx(xs, px, A) { let best = -1, bd = 1e9; xs.forEach((t, i) => { const dd = Math.abs(A.sx(t) - px); if (dd < bd) { bd = dd; best = i; } }); return bd < 24 ? best : -1; }
+function showTip(tip, wrap, px, py, html) {
+  tip.innerHTML = html; tip.hidden = false;
+  const W = wrap.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = px + 14, y = py - th - 10; if (x + tw > W - 4) x = px - tw - 14; if (y < 4) y = py + 14;
+  tip.style.left = Math.max(4, x) + 'px'; tip.style.top = y + 'px';
+}
+function llHover(e) {
+  if (!st.res || st.dragging) return;
+  const cv = $('ll'), r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, A = st.llA;
+  if (!A || px < A.m.l || px > A.m.l + A.pw || py < A.m.t || py > A.m.t + A.ph) { $('llTip').hidden = true; return; }
+  const i = nearestIdx(st.data.t, px, A); if (i < 0) { $('llTip').hidden = true; return; }
+  drawLogLog(); const g = cv.getContext('2d');
+  g.save(); g.strokeStyle = cssv('--ink-3'); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(A.sx(st.data.t[i]), A.m.t); g.lineTo(A.sx(st.data.t[i]), A.m.t + A.ph); g.stroke(); g.restore();
+  showTip($('llTip'), cv.parentElement, px, py,
+    `<b>Δt ${sig(st.data.t[i], 4)} hr</b>${st.res.use[i] ? '' : ' · not used'}<br><span class="sw" style="background:var(--s-dp)"></span>Δp ${sig(st.data.dp[i], 4)} psi · model ${sig(st.d.mp[i], 4)}<br><span class="sw" style="background:var(--s-der)"></span>Δp′ ${sig(st.res.der[i], 4)} psi · model ${sig(st.d.md[i], 4)}`);
+}
+function slHover(e) {
+  if (!st.res) return;
+  const cv = $('sl'), r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top, A = st.slA;
+  if (!A || px < A.m.l || px > A.m.l + A.pw) { $('slTip').hidden = true; return; }
+  const i = nearestIdx(st.res.te, px, A); if (i < 0) { $('slTip').hidden = true; return; }
+  showTip($('slTip'), cv.parentElement, px, py, `<b>t<sub>e</sub> ${sig(st.res.te[i], 4)} hr</b><br>Δp ${sig(st.data.dp[i], 4)} psi`);
+}
+
+let drag = null;
+function onDown(e) {
+  if (!st.res) return;
+  if (e.pointerType !== 'mouse' && !st.adjust) return;
+  const A = st.llA, r = $('ll').getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  if (px < A.m.l || px > A.m.l + A.pw || py < A.m.t || py > A.m.t + A.ph) return;
+  drag = { x: e.clientX, y: e.clientY, P: { ...st.P }, Cg: st.d.Cg, A };
+  st.dragging = true; $('ll').classList.add('dragging'); $('ll').setPointerCapture(e.pointerId); $('llTip').hidden = true;
+}
+function onMove(e) {
+  if (!drag) return llHover(e);
+  const dx = (e.clientX - drag.x) / drag.A.ux, dy = -(e.clientY - drag.y) / drag.A.uy;
+  const W = getW(), P0 = drag.P;
+  const k = P0.k / 10 ** dy;
+  const tfac0 = 0.000295 * P0.k * W.h / (W.mu * P0.C), tfac = tfac0 / 10 ** dx;
+  const C = 0.000295 * k * W.h / (W.mu * tfac);
+  const CD = 0.8936 * C / (W.phi * W.ct * W.h * W.rw * W.rw);
+  st.P = { k, C, S: 0.5 * Math.log(drag.Cg / CD), L: P0.L };
+  st.manual = true; render();
+}
+function onUp() { if (!drag) return; drag = null; st.dragging = false; $('ll').classList.remove('dragging'); render(); }
+
+function setCg() {
+  if (!st.res) return;
+  const W = getW(), Cg = 10 ** num('m_cg'), CD = 0.8936 * st.P.C / (W.phi * W.ct * W.h * W.rw * W.rw);
+  st.P = { ...st.P, S: 0.5 * Math.log(Cg / CD) }; st.manual = true; render();
+}
+
+function reportText() {
+  const P = st.P, d = st.d, c = st.conf, strip = s => s.replace(/<[^>]+>/g, '');
+  const lines = [
+    `IARF type-curve interpretation (${d.T.type === 'bu' ? 'buildup' : 'drawdown'}${st.truth ? ', synthetic data' : ''})`,
+    `Model: ${st.res.model === 'fault' ? 'radial flow + sealing fault' : 'infinite-acting radial flow'}, wellbore storage and skin`,
+    `Confidence: ${c.level}`,
+    `k = ${sig(P.k, 4)} md; kh = ${sig(d.kh, 4)} md·ft; S = ${P.S.toFixed(2)}; C = ${sig(P.C, 4)} bbl/psi; CD = ${sig(d.CD, 4)}` + (P.L ? `; fault distance = ${sig(P.L, 4)} ft` : ''),
+    d.sl ? `Semilog: m = ${sig(d.sl.m)} psi/cycle, k = ${sig(d.sl.k)} md, S = ${d.sl.S.toFixed(2)}` : 'Semilog: not available',
+    `Skin pressure drop = ${sig(d.dPs)} psi; flow efficiency = ${(d.FE * 100).toFixed(0)}%; radius of investigation = ${sig(d.ri)} ft`,
+    '', ...[...document.querySelectorAll('#narr p')].map(p => p.textContent),
+    '', 'Well data: ' + Object.entries(d.W).map(([k, v]) => `${k}=${v}`).join(', '),
+  ];
+  return lines.map(strip).join('\n');
+}
+async function copyReport() {
+  const txt = reportText(), btn = $('copyRep');
+  try { await navigator.clipboard.writeText(txt); btn.textContent = 'Copied'; }
+  catch { const ta = $('copyBuf'); ta.value = txt; ta.removeAttribute('aria-hidden'); ta.classList.remove('sr'); ta.style.cssText = 'width:100%;min-height:200px;margin-top:8px'; $('narr').appendChild(ta); ta.focus(); ta.select(); btn.textContent = 'Select and copy below'; }
+  setTimeout(() => btn.textContent = 'Copy report', 2200);
+}
+
+// ---------- wiring ----------
+function applyPreset(key) {
+  const p = PRESETS[key];
+  $('s_k').value = p.k; $('s_S').value = p.S; $('s_C').value = p.C; $('s_fault').value = p.fault;
+  $('s_dur').value = p.dur; $('s_sigma').value = p.sigma; $('t_type').value = p.type; $('t_tp').value = p.tp;
+  syncTp();
+}
+function syncTp() { $('tpField').style.visibility = $('t_type').value === 'bu' ? 'visible' : 'hidden'; }
+let timer = null; const soon = () => { clearTimeout(timer); timer = setTimeout(analyze, 220); };
+
+function init() {
+  $('preset').innerHTML = Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  Object.entries({ w_q: WELL0.q, w_B: WELL0.B, w_mu: WELL0.mu, w_h: WELL0.h, w_phi: WELL0.phi, w_ct: '1e-5', w_rw: WELL0.rw, s_ppd: 20, s_seed: 7 }).forEach(([k, v]) => $(k).value = v);
+  applyPreset('damaged');
+  $('preset').addEventListener('change', () => { applyPreset($('preset').value); analyze(); });
+  ['s_k', 's_S', 's_C', 's_fault', 's_dur', 's_sigma', 's_ppd', 's_seed'].forEach(id => $(id).addEventListener('input', () => { if (st.source === 'synth') soon(); }));
+  ['w_q', 'w_B', 'w_mu', 'w_h', 'w_phi', 'w_ct', 'w_rw', 't_tp'].forEach(id => $(id).addEventListener('input', soon));
+  $('w_p0').addEventListener('change', () => { if (st.source === 'paste') soon(); else render(); });
+  $('t_type').addEventListener('change', () => { syncTp(); analyze(); });
+  $('newNoise').addEventListener('click', () => { $('s_seed').value = 1 + Math.floor(Math.random() * 99999); analyze(); });
+  $('a_Lauto').addEventListener('change', () => { $('a_L').disabled = $('a_Lauto').checked; analyze(); });
+  $('a_L').addEventListener('input', () => { $('a_Lv').textContent = num('a_L').toFixed(2) + ' cycle'; soon(); });
+  $('a_wauto').addEventListener('change', () => { const on = $('a_wauto').checked; $('a_t0').disabled = on; $('a_t1').disabled = on; analyze(); });
+  ['a_t0', 'a_t1'].forEach(id => $(id).addEventListener('change', analyze));
+  $('runAuto').addEventListener('click', analyze);
+  $('reauto').addEventListener('click', analyze);
+  $('refine').addEventListener('click', refine);
+  $('m_cg').addEventListener('input', setCg);
+  $('copyRep').addEventListener('click', copyReport);
+  const seg = src => { st.source = src; $('srcSynth').setAttribute('aria-pressed', src === 'synth'); $('srcPaste').setAttribute('aria-pressed', src === 'paste'); $('synthSect').hidden = src !== 'synth'; $('pasteSect').hidden = src !== 'paste'; };
+  $('srcSynth').addEventListener('click', () => { seg('synth'); analyze(); });
+  $('srcPaste').addEventListener('click', () => { seg('paste'); if (!$('p_text').value.trim()) fillSample(); analyze(); });
+  const fillSample = () => { if (!st.data) return; $('p_col').value = 'dp'; $('p_text').value = '# dt_hr, dp_psi  (synthetic sample, replace with your gauge data)\n' + st.data.t.map((t, i) => `${+t.toPrecision(5)}, ${st.data.dp[i]}`).join('\n'); };
+  $('p_sample').addEventListener('click', () => { const was = st.source; seg('synth'); const D = makeSynthetic(); st.data = D; seg(was); fillSample(); analyze(); });
+  $('p_load').addEventListener('click', analyze);
+  $('togFam').addEventListener('click', () => { st.fam = !st.fam; $('togFam').setAttribute('aria-pressed', st.fam); render(); });
+  $('togReg').addEventListener('click', () => { st.reg = !st.reg; $('togReg').setAttribute('aria-pressed', st.reg); render(); });
+  $('togAdj').addEventListener('click', () => { st.adjust = !st.adjust; $('togAdj').setAttribute('aria-pressed', st.adjust); $('ll').classList.toggle('adjust', st.adjust); });
+  const ll = $('ll');
+  ll.addEventListener('pointerdown', onDown); ll.addEventListener('pointermove', onMove); ll.addEventListener('pointerup', onUp); ll.addEventListener('pointercancel', onUp);
+  ll.addEventListener('pointerleave', () => { if (!drag) { $('llTip').hidden = true; if (st.res) drawLogLog(); } });
+  $('sl').addEventListener('pointermove', slHover); $('sl').addEventListener('pointerleave', () => $('slTip').hidden = true);
+  let rt = null; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => st.res && (drawLogLog(), drawSemilog()), 60); }).observe(document.querySelector('main'));
+  const rethemed = () => st.res && (drawLogLog(), drawSemilog());
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', rethemed);
+  new MutationObserver(rethemed).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  if (document.fonts) document.fonts.ready.then(rethemed);
+  analyze();
+}
+init();
+
+</script>
+
+</body></html>
